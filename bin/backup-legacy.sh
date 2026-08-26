@@ -55,6 +55,7 @@ mkdir -p "$backup_dir"
 trap 'rm -f "$partial"' EXIT
 
 echo "Creating read-only legacy metadata backup for $project"
+# shellcheck disable=SC2016 # intentionally single-quoted: vars expand inside the container, not on the host
 "${compose[@]}" exec -T superset-db sh -ec \
     'exec pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom' > "$partial"
 
