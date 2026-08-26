@@ -9,12 +9,12 @@ python3 -m py_compile config/superset_config.py tests/contract/*.py
 python3 tests/contract/check_compatibility.py
 python3 -m json.tool compatibility.json >/dev/null
 
-for file in bin/*.sh bin/xpbuilder docker/*.sh replica/init/*.sh tests/*.sh; do
+for file in bin/*.sh bin/xpbuilder docker/*.sh docker/patches/*.sh replica/init/*.sh tests/*.sh; do
     bash -n "$file"
 done
 
 if command -v shellcheck >/dev/null 2>&1; then
-    shellcheck bin/*.sh bin/xpbuilder docker/*.sh replica/init/*.sh tests/*.sh
+    shellcheck bin/*.sh bin/xpbuilder docker/*.sh docker/patches/*.sh replica/init/*.sh tests/*.sh
 fi
 
 if rg -n \

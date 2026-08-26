@@ -13,8 +13,9 @@ MariaDB replica volumes.
 
 ## Safety rules
 
-- Never use `apache/superset:latest`. The base image is pinned by version and
-  digest in `Dockerfile`.
+- The Superset runtime is built from the vendored source tree in `superset/`
+  (Apache Superset 6.1.0) — never from a prebuilt registry image. Custom code
+  changes go in `docker/patches/` and are baked into the image.
 - Never place credentials in Compose, customer YAML, command documentation, or
   another env file. Each deployment reads secrets from a file named `.env`.
 - Never run first-time initialization against an existing metadata volume.
@@ -61,7 +62,8 @@ Only files whose basename is exactly `.env` are accepted.
 | Command | Purpose |
 | --- | --- |
 | `config` | Validate `.env` and render the resolved Compose model |
-| `build` | Build the pinned XPBuilder image |
+| `build` | Build the XPBuilder image from the vendored Superset source |
+| `patch` | Export/verify Superset source edits as `docker/patches/*.patch` |
 | `init` | Initialize a brand-new metadata database explicitly |
 | `upgrade` | Run an explicitly enabled Superset schema upgrade |
 | `up` | Start or converge the complete site instance |
@@ -88,7 +90,8 @@ The initial extraction targets:
 
 - Moodle 4.5-5.1 with the `local_xpromptsuperset` 1.x connector.
 - Moodle 5.2 with `local_xpromptsuperset` 2.0.8 or newer.
-- Apache Superset 6.1.0 at the image digest recorded in `Dockerfile`.
+- Apache Superset 6.1.0 built from the vendored source tree in `superset/`
+  (see `compatibility.json` for the pinned tag and commit).
 
 The 2.x connector release and its Moodle 5.2 CI coverage are rollout gates;
 XPBuilder must not be promoted to production 5.2 before they are green.
@@ -106,3 +109,25 @@ tests/integration.sh
 
 The integration test uses a uniquely named temporary Compose project and
 volumes, then removes only those test resources.
+
+## Building from source
+
+The runtime is built from the vendored Apache Superset source in `superset/`
+(a shallow clone of tag `6.1.0`; its pristine baseline lives in a separate
+repo at `~/.cache/xpbuilder/superset-baseline.git`, dev-machine only — see
+`docker/patches/README.md`). The root `Dockerfile` is the upstream
+multi-stage build adapted to that layout, plus the `xpbuilder` overlay stage
+(config, branding, bootstrap). A full build takes 30-60 minutes and needs
+BuildKit (Docker 23+).
+
+- Custom source changes: edit files inside `superset/`, then export and
+  verify them with `bin/xpbuilder patch 0001-my-change` (see
+  `docker/patches/README.md`). Patches are applied in the build's
+  `superset-src` stage and baked into the image.
+- Runtime overlay (config, branding, init): `config/`, `customizations/`,
+  `docker/initialize.sh`, `requirements.lock` — unchanged from the registry
+  image era.
+- To upgrade the vendored version: re-clone the new tag over `superset/`,
+  delete its `.git`, update `superset/.xpbuilder-vendor` and
+  `compatibility.json`, then rebuild.
+- Do not commit `node_modules/` or build artifacts inside `superset/`.

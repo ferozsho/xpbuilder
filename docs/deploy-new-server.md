@@ -16,7 +16,7 @@ machine-specific and must be provisioned per site:
 
 | Item | Where it lives | Notes |
 | --- | --- | --- |
-| Superset runtime + branding | In the image (baked) | Built from `Dockerfile`, pinned base `apache/superset:6.1.0@sha256:fb3464…` |
+| Superset runtime + branding | In the image (baked) | Built from the vendored Apache Superset 6.1.0 source in `superset/` |
 | Superset config | In the image (baked) | `config/superset_config.py` reads env vars only |
 | Per-site settings | `.env` on the server | `XPBUILDER_INSTANCE`, host port, `MOODLE_NETWORK`, origins, secrets, reporting DB user/password |
 | Metadata (dashboards, charts, datasets) | External postgres volume | Adopt, restore from backup, or start fresh |
@@ -51,8 +51,9 @@ git clone git@github.com:ferozsho/xpbuilder.git /var/www/openxpertz-xpbuilder
 
 ## Option C — build from the repo (recommended for parity)
 
-Because the Dockerfile pins the base image by digest, building anywhere
-produces an equivalent image. This is the flow used for the production VM.
+Because the runtime is built from the vendored source tree (same tag, same
+patches), building anywhere produces an equivalent image. This is the flow
+used for the production VM.
 
 ```bash
 cd /var/www/openxpertz-xpbuilder

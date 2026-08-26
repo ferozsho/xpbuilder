@@ -1,7 +1,7 @@
 # Migration and rollback
 
 The first migration changes ownership of the runtime files, not Superset
-behavior or Moodle mapping data. Use the pinned image and migrate one site at a
+behavior or Moodle mapping data. Use the built XPBuilder image and migrate one site at a
 time.
 
 ## Preflight

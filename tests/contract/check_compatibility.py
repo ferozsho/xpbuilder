@@ -33,13 +33,25 @@ def main():
     if connectors['2.x']['status'] != 'rollout-gate':
         raise AssertionError('connector 2.x must remain gated until Moodle CI passes')
 
-    dockerfile = (ROOT / 'Dockerfile').read_text(encoding='utf-8')
     superset = compatibility['superset']
-    expected = f"{superset['image']}@{superset['digest']}"
-    if expected not in dockerfile:
-        raise AssertionError('Dockerfile base image does not match compatibility.json')
+    if superset['build'] != 'source':
+        raise AssertionError('superset build must be "source"')
+    if superset['version'] != '6.1.0':
+        raise AssertionError('superset version changed unexpectedly')
+
+    marker = (ROOT / 'superset' / '.xpbuilder-vendor').read_text(encoding='utf-8')
+    if superset['source_tag'] not in marker:
+        raise AssertionError('vendored source tag does not match compatibility.json')
+    if superset['source_commit'] not in marker:
+        raise AssertionError('vendored source commit does not match compatibility.json')
+
+    dockerfile = (ROOT / 'Dockerfile').read_text(encoding='utf-8')
+    if re.search(r'^\s*FROM\s+apache/superset', dockerfile, re.M):
+        raise AssertionError('runtime must be built from the vendored source, not a registry image')
     if 'apache/superset:latest' in dockerfile:
         raise AssertionError('floating Superset image tag is forbidden')
+    if 'superset-src' not in dockerfile:
+        raise AssertionError('Dockerfile is missing the source prep stage')
 
     print('Compatibility contract checks passed')
 

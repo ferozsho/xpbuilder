@@ -4,6 +4,7 @@ x-xpbuilder-image: &x-xpbuilder-image
   image: ${XPBUILDER_IMAGE:-openxpertz-xpbuilder:local}
   build:
     context: .
+    target: xpbuilder
     args:
       XPBUILDER_VERSION: ${XPBUILDER_VERSION:-0.1.0}
 

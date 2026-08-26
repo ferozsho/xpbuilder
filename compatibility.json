@@ -4,8 +4,11 @@
   "xpbuilder_version": "0.1.0",
   "superset": {
     "version": "6.1.0",
-    "image": "apache/superset:6.1.0",
-    "digest": "sha256:fb3464528ec7076f91195f0ff7835755aa023e281f1bb78a84782ce7a36b3705"
+    "build": "source",
+    "source": "https://github.com/apache/superset",
+    "source_tag": "6.1.0",
+    "source_commit": "c83fb2bb1dcfac41ac51bcebd82471f4a7180d18",
+    "vendored_at": "2026-08-26"
   },
   "connectors": {
     "1.x": {
