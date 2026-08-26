@@ -19,8 +19,8 @@ MariaDB replica volumes.
   another env file. Each deployment reads secrets from a file named `.env`.
 - Never run first-time initialization against an existing metadata volume.
 - Never remove volumes during normal `down` or rollback operations.
-- Migrate one site at a time and retain the legacy Compose definition until the
-  new instance has passed its soak period.
+- Migrate one site at a time. The plugin-owned legacy Compose was removed from
+  `local_xpromptsuperset`; XPBuilder is the only Superset runtime.
 
 ## Quick start
 
@@ -71,8 +71,9 @@ Only files whose basename is exactly `.env` are accepted.
 | `backup` | Create a PostgreSQL metadata backup and manifest |
 | `restore` | Restore a selected backup with explicit confirmation |
 
-Before the first cutover, use `bin/backup-legacy.sh` against the still-running
-plugin-owned Compose project. The normal `backup` command applies only after
+If a legacy plugin-owned project is still running during a migration, snapshot
+its metadata with `bin/backup-legacy.sh` (supply a compose file from git
+history) or a direct `pg_dump`. The normal `backup` command applies only after
 XPBuilder owns the metadata service.
 
 Configuration is documented in [docs/configuration.md](docs/configuration.md),

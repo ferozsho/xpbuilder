@@ -276,10 +276,11 @@ def _xprompt_runtime_patches(app):
 FLASK_APP_MUTATOR = _xprompt_runtime_patches
 
 # ── Branding: "Advance BI" (persistent — overrides the image's default
-#    config.py; survives container rebuilds because this file is bind-mounted).
+#    config.py; survives container rebuilds because this file is baked into the
+#    XPBuilder image at build time).
 #    APP_NAME drives the page <title>, browser tab and appbuilder navbar brand.
 #    The navbar logo/alt theme tokens are set in _xprompt_runtime_patches() above.
 APP_NAME = os.environ.get('XPBUILDER_APP_NAME', 'Advance BI')
 # Custom logo under a FRESH filename (advance-bi-logo.png) so the public URL is
-# never served a CDN-cached original. Mounted from superset-templates/images/.
+# never served a CDN-cached original. Baked in from customizations/images/.
 APP_ICON = "/static/assets/images/advance-bi-logo.png"

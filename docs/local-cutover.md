@@ -21,14 +21,17 @@ new admin password in `.env` does not update an existing Superset account.
 Before starting XPBuilder:
 
 1. Confirm the Moodle network and all three volumes exist.
-2. Run the legacy project `docker compose ps` and record its image and aliases.
-3. Run `bin/backup-legacy.sh` while the legacy metadata service is running.
+2. Record the legacy containers' image, aliases, and ports from the running
+   stack if it is still up (`docker ps`, `docker inspect`).
+3. If a legacy metadata service is still running, snapshot its metadata
+   (`pg_dump` or `bin/backup-legacy.sh` with a compose file from git history);
+   otherwise XPBuilder adopts the existing metadata volume directly.
 4. Run XPBuilder `config`; do not run `init` or `upgrade`.
 5. Stop the legacy project without `--volumes`.
 6. Run XPBuilder `up`, `ps`, `health`, and the runtime contract test.
 7. Verify a real Moodle dashboard conversion and embedded dashboard in the
    browser before enabling `auto_start` in the customer registry.
 
-If the `.env` path is absent, `openxpertz-deploy/bin/start-stacks.sh` uses the
-retained plugin-owned Compose definition. That fallback is temporary and
-exists only to keep rollback possible during the first release cycle.
+XPBuilder is the only Superset runtime. The plugin-owned legacy Compose was
+removed from `local_xpromptsuperset`; if a site `.env` is absent,
+`openxpertz-deploy/bin/start-stacks.sh` warns and starts nothing.
