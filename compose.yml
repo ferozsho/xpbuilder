@@ -170,6 +170,10 @@ services:
       - --read-only=1
       - --log-bin=/var/lib/mysql/mysql-bin
       - --binlog-format=ROW
+      # The Moodle primary can log ROW events larger than the MariaDB default
+      # (16M); the replica's IO thread fails with errno 1236 unless it can read
+      # them, so allow packets up to 512M.
+      - --max-allowed-packet=536870912
     environment:
       MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?MARIADB_ROOT_PASSWORD is required}
       MARIADB_DATABASE: ${MOODLE_DB_NAME:?MOODLE_DB_NAME is required}
