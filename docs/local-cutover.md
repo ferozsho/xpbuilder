@@ -6,8 +6,8 @@ change after this document is written.
 
 | Site | XPBuilder `.env` | Moodle network | Legacy metadata volume | Legacy Redis volume | Legacy replica volume |
 | --- | --- | --- | --- | --- | --- |
-| Moodle 5.1 | `instances/moodle-5.1/.env` | `cmdxboard_default` | `local_xpromptsuperset_superset_db_data` | `local_xpromptsuperset_superset_redis_data` | `local_xpromptsuperset_superset_replica_data` |
-| Moodle 5.2 | `instances/moodle-5.2/.env` | `cmdxboard52_default` | `local_xpromptsuperset_superset52_db_data` | `local_xpromptsuperset_superset52_redis_data` | `local_xpromptsuperset_superset52_replica_data` |
+| Moodle 5.1 (xprompt) | `instances/xprompt/.env` | `cmdxboard_default` | `local_xpromptsuperset_superset_db_data` | `local_xpromptsuperset_superset_redis_data` | `local_xpromptsuperset_superset_replica_data` |
+| Moodle 5.2 (xp521) | `instances/xp521/.env` | `cmdxboard52_default` | `local_xpromptsuperset_superset52_db_data` | `local_xpromptsuperset_superset52_redis_data` | `local_xpromptsuperset_superset52_replica_data` |
 
 For each site, create its `.env` with the site-specific selectors, then set
 the three exact legacy volume names and
