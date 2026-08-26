@@ -5526,7 +5526,10 @@ export const generateData = (theme: SupersetTheme) => ({
     ],
   },
   hasCustomMetric: false,
-  mapboxApiKey: '',
+  // Storybook demo only — the runtime chart reads mapboxApiKey from each
+  // chart's config in Superset (per-chart control). For local Storybook
+  // previews, set MAPBOX_API_KEY in superset-frontend/.env (gitignored).
+  mapboxApiKey: process.env.MAPBOX_API_KEY ?? '',
   mapStyle: 'mapbox://styles/mapbox/light-v9',
   aggregatorName: 'sum',
   clusteringRadius: '60',
