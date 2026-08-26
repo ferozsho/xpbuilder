@@ -284,3 +284,8 @@ APP_NAME = os.environ.get('XPBUILDER_APP_NAME', 'Advance BI')
 # Custom logo under a FRESH filename (advance-bi-logo.png) so the public URL is
 # never served a CDN-cached original. Baked in from customizations/images/.
 APP_ICON = "/static/assets/images/advance-bi-logo.png"
+
+# When set in the per-site .env (XPBUILDER_BRAND_URL), the tail-JS brand fixer
+# points the navbar brand logo at this URL (e.g. the site's Moodle dashboard)
+# instead of "/". Default "/" keeps Superset's own home page.
+XPBUILDER_BRAND_URL = os.environ.get('XPBUILDER_BRAND_URL', '/')

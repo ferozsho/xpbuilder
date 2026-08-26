@@ -95,6 +95,8 @@ replica_root_password="$(secret 24)"
     printf 'XPBUILDER_VOLUMES_EXTERNAL=false\n'
     printf 'XPBUILDER_ALLOWED_ORIGINS=%s\n' "$allowed_origins"
     printf 'XPBUILDER_APP_NAME=Advance BI\n'
+    # Set to the site's Moodle dashboard URL to make the navbar logo link there.
+    printf 'XPBUILDER_BRAND_URL=\n'
     printf 'XPBUILDER_ALLOW_INITIALIZE=yes\n'
     printf 'XPBUILDER_ALLOW_SCHEMA_UPGRADE=no\n'
     printf 'XPBUILDER_ALLOW_RESTORE=no\n'

@@ -25,6 +25,9 @@ x-superset-environment: &x-superset-environment
   MOODLE_DB_NAME: ${MOODLE_DB_NAME:?MOODLE_DB_NAME is required}
   XPBUILDER_ALLOWED_ORIGINS: ${XPBUILDER_ALLOWED_ORIGINS:?XPBUILDER_ALLOWED_ORIGINS is required}
   XPBUILDER_APP_NAME: ${XPBUILDER_APP_NAME:-Advance BI}
+  # Clicking the navbar brand logo goes here (e.g. the site's Moodle
+  # dashboard); "/" keeps the default Superset home page.
+  XPBUILDER_BRAND_URL: ${XPBUILDER_BRAND_URL:-/}
   SUPERSET_LOG_LEVEL: ${SUPERSET_LOG_LEVEL:-INFO}
 
 services:

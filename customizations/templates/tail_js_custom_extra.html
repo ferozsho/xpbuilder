@@ -11,6 +11,29 @@
     one go. Mirrors the plugin's embed.php hook, applied to the DIRECT
     (non-embedded) dashboard view.
 #}
+{#
+    Brand logo link fixer: when XPBUILDER_BRAND_URL is configured, clicking the
+    navbar brand logo goes to the site's Moodle dashboard instead of the
+    Superset home page. The logo is a React-rendered anchor, so re-apply on an
+    interval in case the app re-renders the navbar.
+#}
+<script nonce="{{ macros.get_nonce() }}">
+(function () {
+  var brandUrl = {{ config.get('XPBUILDER_BRAND_URL', '/') | tojson }};
+  if (!brandUrl || brandUrl === '/' || brandUrl === '') { return; }
+  function fixBrand() {
+    var img = document.querySelector('img[src*="advance-bi-logo.png"]');
+    if (!img) { return; }
+    var anchor = img.closest('a');
+    if (anchor && anchor.getAttribute('href') !== brandUrl) {
+      anchor.setAttribute('href', brandUrl);
+    }
+  }
+  fixBrand();
+  document.addEventListener('DOMContentLoaded', fixBrand);
+  setInterval(fixBrand, 1500);
+})();
+</script>
 <script nonce="{{ macros.get_nonce() }}">
 (function () {
   // Only dashboard pages have the native-filter Clear All button.
