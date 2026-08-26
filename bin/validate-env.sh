@@ -94,11 +94,24 @@ secret_keys=(
     POSTGRES_PASSWORD SUPERSET_REDIS_PASSWORD SUPERSET_SECRET_KEY
     GUEST_TOKEN_JWT_SECRET SUPERSET_ADMIN_PASSWORD
 )
+# A greenfield stack generates its own secrets with a 16-character floor. A
+# legacy adoption (XPBUILDER_VOLUMES_EXTERNAL=true) keeps the EXISTING
+# credentials verbatim so the adopted volumes keep working — those values may
+# legitimately be shorter (e.g. postgres 'superset', admin 'admin'), so only
+# require them to be present and warn when they are below the normal floor.
+if [ "$external" = "true" ]; then
+    min_secret_len=1
+else
+    min_secret_len=16
+fi
 for key in "${secret_keys[@]}"; do
     value="$(value_of "$key")"
-    if [ "${#value}" -lt 16 ]; then
-        echo "ERROR: $key must contain at least 16 characters" >&2
+    if [ "${#value}" -lt "$min_secret_len" ]; then
+        echo "ERROR: $key must contain at least $min_secret_len characters" >&2
         exit 1
+    fi
+    if [ "$external" = "true" ] && [ "${#value}" -lt 16 ]; then
+        echo "WARNING: $key is shorter than 16 characters (preserved legacy credential)" >&2
     fi
 done
 
