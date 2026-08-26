@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "contract_version": "1.0",
+  "xpbuilder_version": "0.1.0",
+  "superset": {
+    "version": "6.1.0",
+    "image": "apache/superset:6.1.0",
+    "digest": "sha256:fb3464528ec7076f91195f0ff7835755aa023e281f1bb78a84782ce7a36b3705"
+  },
+  "connectors": {
+    "1.x": {
+      "component": "local_xpromptsuperset",
+      "minimum_release": "1.0.8",
+      "moodle": ["4.5", "5.0", "5.1"],
+      "status": "baseline"
+    },
+    "2.x": {
+      "component": "local_xpromptsuperset",
+      "minimum_release": "2.0.0",
+      "moodle": ["5.2"],
+      "status": "rollout-gate"
+    }
+  },
+  "required_contracts": [
+    "security-login",
+    "dashboard-crud",
+    "chart-crud",
+    "dataset-crud",
+    "embedded-dashboard-registration",
+    "guest-token",
+    "role-and-rls-context",
+    "same-origin-sso",
+    "health"
+  ]
+}

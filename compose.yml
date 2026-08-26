@@ -1,0 +1,209 @@
+name: ${XPBUILDER_INSTANCE:?XPBUILDER_INSTANCE is required}
+
+x-xpbuilder-image: &x-xpbuilder-image
+  image: ${XPBUILDER_IMAGE:-openxpertz-xpbuilder:local}
+  build:
+    context: .
+    args:
+      XPBUILDER_VERSION: ${XPBUILDER_VERSION:-0.1.0}
+
+x-superset-environment: &x-superset-environment
+  SUPERSET_CONFIG_PATH: /app/xpbuilder/superset_config.py
+  SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:?SUPERSET_SECRET_KEY is required}
+  GUEST_TOKEN_JWT_SECRET: ${GUEST_TOKEN_JWT_SECRET:?GUEST_TOKEN_JWT_SECRET is required}
+  GUEST_TOKEN_JWT_AUDIENCE: ${GUEST_TOKEN_JWT_AUDIENCE:?GUEST_TOKEN_JWT_AUDIENCE is required}
+  SUPERSET_REDIS_PASSWORD: ${SUPERSET_REDIS_PASSWORD:?SUPERSET_REDIS_PASSWORD is required}
+  POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+  POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+  MOODLE_DB_HOST: mariadb-replica
+  MOODLE_DB_PORT: "3306"
+  MOODLE_DB_USER: ${MOODLE_DB_USER:?MOODLE_DB_USER is required}
+  MOODLE_DB_PASSWORD: ${MOODLE_DB_PASSWORD:?MOODLE_DB_PASSWORD is required}
+  MOODLE_DB_NAME: ${MOODLE_DB_NAME:?MOODLE_DB_NAME is required}
+  XPBUILDER_ALLOWED_ORIGINS: ${XPBUILDER_ALLOWED_ORIGINS:?XPBUILDER_ALLOWED_ORIGINS is required}
+  XPBUILDER_APP_NAME: ${XPBUILDER_APP_NAME:-Advance BI}
+  SUPERSET_LOG_LEVEL: ${SUPERSET_LOG_LEVEL:-INFO}
+
+services:
+  superset:
+    <<: *x-xpbuilder-image
+    container_name: ${XPBUILDER_INSTANCE}_superset
+    restart: unless-stopped
+    command: ["/app/docker/entrypoints/run-server.sh"]
+    environment: *x-superset-environment
+    ports:
+      - "${XPBUILDER_HOST_PORT:?XPBUILDER_HOST_PORT is required}:8088"
+    depends_on:
+      superset-db:
+        condition: service_healthy
+      superset-redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          /app/.venv/bin/python -c "import urllib.request;
+          assert urllib.request.urlopen('http://127.0.0.1:8088/health', timeout=5).status == 200"
+      interval: 15s
+      timeout: 8s
+      retries: 12
+      start_period: 90s
+    networks:
+      xpbuilder-internal: {}
+      moodle:
+        aliases:
+          - ${XPBUILDER_INSTANCE}_superset
+          - ${XPBUILDER_MOODLE_ALIAS:-superset}
+
+  superset-worker:
+    <<: *x-xpbuilder-image
+    container_name: ${XPBUILDER_INSTANCE}_superset_worker
+    restart: unless-stopped
+    command: ["celery", "-A", "superset.tasks.celery_app:app", "worker", "-l", "INFO"]
+    environment: *x-superset-environment
+    depends_on:
+      superset-db:
+        condition: service_healthy
+      superset-redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          celery -A superset.tasks.celery_app:app inspect ping
+          -d "celery@$${HOSTNAME}" --timeout 8 | grep -q pong
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 90s
+    networks:
+      - xpbuilder-internal
+
+  superset-beat:
+    <<: *x-xpbuilder-image
+    container_name: ${XPBUILDER_INSTANCE}_superset_beat
+    restart: unless-stopped
+    command: ["celery", "-A", "superset.tasks.celery_app:app", "beat", "-l", "INFO"]
+    environment: *x-superset-environment
+    depends_on:
+      superset-db:
+        condition: service_healthy
+      superset-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "grep -aq celery /proc/1/cmdline"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - xpbuilder-internal
+
+  initialize:
+    <<: *x-xpbuilder-image
+    profiles: ["tools"]
+    command: ["/opt/xpbuilder/bin/initialize.sh", "new"]
+    environment:
+      <<: *x-superset-environment
+      XPBUILDER_ALLOW_INITIALIZE: ${XPBUILDER_ALLOW_INITIALIZE:-no}
+      XPBUILDER_ALLOW_SCHEMA_UPGRADE: ${XPBUILDER_ALLOW_SCHEMA_UPGRADE:-no}
+      SUPERSET_ADMIN_USERNAME: ${SUPERSET_ADMIN_USERNAME:?SUPERSET_ADMIN_USERNAME is required}
+      SUPERSET_ADMIN_PASSWORD: ${SUPERSET_ADMIN_PASSWORD:?SUPERSET_ADMIN_PASSWORD is required}
+      SUPERSET_ADMIN_FIRSTNAME: ${SUPERSET_ADMIN_FIRSTNAME:?SUPERSET_ADMIN_FIRSTNAME is required}
+      SUPERSET_ADMIN_LASTNAME: ${SUPERSET_ADMIN_LASTNAME:?SUPERSET_ADMIN_LASTNAME is required}
+      SUPERSET_ADMIN_EMAIL: ${SUPERSET_ADMIN_EMAIL:?SUPERSET_ADMIN_EMAIL is required}
+    depends_on:
+      superset-db:
+        condition: service_healthy
+      superset-redis:
+        condition: service_healthy
+    networks:
+      - xpbuilder-internal
+
+  superset-db:
+    image: postgres:16-alpine
+    container_name: ${XPBUILDER_INSTANCE}_superset_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+    volumes:
+      - superset-metadata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks:
+      - xpbuilder-internal
+
+  superset-redis:
+    image: redis:7-alpine
+    container_name: ${XPBUILDER_INSTANCE}_superset_redis
+    restart: unless-stopped
+    command:
+      - sh
+      - -ec
+      - exec redis-server --appendonly yes --requirepass "$${SUPERSET_REDIS_PASSWORD}"
+    environment:
+      SUPERSET_REDIS_PASSWORD: ${SUPERSET_REDIS_PASSWORD:?SUPERSET_REDIS_PASSWORD is required}
+    volumes:
+      - superset-redis:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$${SUPERSET_REDIS_PASSWORD}\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks:
+      - xpbuilder-internal
+
+  mariadb-replica:
+    image: mariadb:11.4
+    container_name: ${XPBUILDER_INSTANCE}_superset_replica
+    restart: unless-stopped
+    command:
+      - --server-id=${MARIADB_SERVER_ID:?MARIADB_SERVER_ID is required}
+      - --read-only=1
+      - --log-bin=/var/lib/mysql/mysql-bin
+      - --binlog-format=ROW
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?MARIADB_ROOT_PASSWORD is required}
+      MARIADB_DATABASE: ${MOODLE_DB_NAME:?MOODLE_DB_NAME is required}
+      MARIADB_REPLICATION_USER: ${MARIADB_REPLICATION_USER:?MARIADB_REPLICATION_USER is required}
+      MARIADB_REPLICATION_PASSWORD: ${MARIADB_REPLICATION_PASSWORD:?MARIADB_REPLICATION_PASSWORD is required}
+      PRIMARY_DB_HOST: ${PRIMARY_DB_HOST:?PRIMARY_DB_HOST is required}
+      PRIMARY_DB_PORT: ${PRIMARY_DB_PORT:-3306}
+      MOODLE_DB_USER: ${MOODLE_DB_USER:?MOODLE_DB_USER is required}
+      MOODLE_DB_PASSWORD: ${MOODLE_DB_PASSWORD:?MOODLE_DB_PASSWORD is required}
+    volumes:
+      - moodle-replica:/var/lib/mysql
+      - ./replica/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb-admin ping -h 127.0.0.1 -u root -p\"$${MARIADB_ROOT_PASSWORD}\" --silent"]
+      interval: 10s
+      timeout: 8s
+      retries: 18
+      start_period: 60s
+    networks:
+      - xpbuilder-internal
+      - moodle
+
+volumes:
+  superset-metadata:
+    name: ${XPBUILDER_METADATA_VOLUME:?XPBUILDER_METADATA_VOLUME is required}
+    external: ${XPBUILDER_VOLUMES_EXTERNAL:-false}
+  superset-redis:
+    name: ${XPBUILDER_REDIS_VOLUME:?XPBUILDER_REDIS_VOLUME is required}
+    external: ${XPBUILDER_VOLUMES_EXTERNAL:-false}
+  moodle-replica:
+    name: ${XPBUILDER_REPLICA_VOLUME:?XPBUILDER_REPLICA_VOLUME is required}
+    external: ${XPBUILDER_VOLUMES_EXTERNAL:-false}
+
+networks:
+  xpbuilder-internal:
+    name: ${XPBUILDER_INTERNAL_NETWORK:?XPBUILDER_INTERNAL_NETWORK is required}
+  moodle:
+    name: ${MOODLE_NETWORK:?MOODLE_NETWORK is required}
+    external: true
