@@ -133,8 +133,9 @@ GUEST_ROLE_NAME = 'Gamma'
 # Added AFTER init via Superset API; do NOT auto-connect during startup.
 MOODLE_DB_HOST = _required('MOODLE_DB_HOST')
 MOODLE_DB_PORT = _required('MOODLE_DB_PORT')
-MOODLE_DB_USER = _required('MOODLE_DB_USER')
-MOODLE_DB_PASS = _required('MOODLE_DB_PASSWORD')
+# Reporting user on the read-only replica (distinct from the Moodle app DB user).
+MOODLE_DB_USER = _required('MOODLE_REPORTING_USER')
+MOODLE_DB_PASS = _required('MOODLE_REPORTING_PASSWORD')
 MOODLE_DB_NAME = _required('MOODLE_DB_NAME')
 
 # ── Embedded Dashboard Allowed Domains ────────────────────

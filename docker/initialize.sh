@@ -12,7 +12,7 @@ required() {
 
 for name in \
     POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB \
-    MOODLE_DB_HOST MOODLE_DB_PORT MOODLE_DB_USER MOODLE_DB_PASSWORD MOODLE_DB_NAME; do
+    MOODLE_DB_HOST MOODLE_DB_PORT MOODLE_REPORTING_USER MOODLE_REPORTING_PASSWORD MOODLE_DB_NAME; do
     required "$name"
 done
 
@@ -90,8 +90,8 @@ from urllib.parse import quote_plus
 
 print(
     'mysql+pymysql://'
-    f"{quote_plus(os.environ['MOODLE_DB_USER'])}:"
-    f"{quote_plus(os.environ['MOODLE_DB_PASSWORD'])}@"
+    f"{quote_plus(os.environ['MOODLE_REPORTING_USER'])}:"
+    f"{quote_plus(os.environ['MOODLE_REPORTING_PASSWORD'])}@"
     f"{os.environ['MOODLE_DB_HOST']}:{os.environ['MOODLE_DB_PORT']}/"
     f"{quote_plus(os.environ['MOODLE_DB_NAME'])}"
 )

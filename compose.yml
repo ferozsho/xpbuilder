@@ -18,8 +18,10 @@ x-superset-environment: &x-superset-environment
   POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
   MOODLE_DB_HOST: mariadb-replica
   MOODLE_DB_PORT: "3306"
-  MOODLE_DB_USER: ${MOODLE_DB_USER:?MOODLE_DB_USER is required}
-  MOODLE_DB_PASSWORD: ${MOODLE_DB_PASSWORD:?MOODLE_DB_PASSWORD is required}
+  # Reporting user on the read-only replica. Named distinctly from the Moodle
+  # app DB user (MOODLE_DB_USER) so a site's shared .env can hold both.
+  MOODLE_REPORTING_USER: ${MOODLE_REPORTING_USER:?MOODLE_REPORTING_USER is required}
+  MOODLE_REPORTING_PASSWORD: ${MOODLE_REPORTING_PASSWORD:?MOODLE_REPORTING_PASSWORD is required}
   MOODLE_DB_NAME: ${MOODLE_DB_NAME:?MOODLE_DB_NAME is required}
   XPBUILDER_ALLOWED_ORIGINS: ${XPBUILDER_ALLOWED_ORIGINS:?XPBUILDER_ALLOWED_ORIGINS is required}
   XPBUILDER_APP_NAME: ${XPBUILDER_APP_NAME:-Advance BI}
@@ -175,8 +177,8 @@ services:
       MARIADB_REPLICATION_PASSWORD: ${MARIADB_REPLICATION_PASSWORD:?MARIADB_REPLICATION_PASSWORD is required}
       PRIMARY_DB_HOST: ${PRIMARY_DB_HOST:?PRIMARY_DB_HOST is required}
       PRIMARY_DB_PORT: ${PRIMARY_DB_PORT:-3306}
-      MOODLE_DB_USER: ${MOODLE_DB_USER:?MOODLE_DB_USER is required}
-      MOODLE_DB_PASSWORD: ${MOODLE_DB_PASSWORD:?MOODLE_DB_PASSWORD is required}
+      MOODLE_REPORTING_USER: ${MOODLE_REPORTING_USER:?MOODLE_REPORTING_USER is required}
+      MOODLE_REPORTING_PASSWORD: ${MOODLE_REPORTING_PASSWORD:?MOODLE_REPORTING_PASSWORD is required}
     volumes:
       - moodle-replica:/var/lib/mysql
       - ./replica/init:/docker-entrypoint-initdb.d:ro
