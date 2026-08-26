@@ -37,3 +37,14 @@ The runtime contract test verifies authentication, guest tokens, collection
 responses, health, and the XPBuilder branding asset. Moodle CI must separately
 exercise conversion, SSO, capabilities, mappings, and browser embedding on both
 the 1.x and 2.x connector lines.
+
+## Supported connector lines
+
+| Moodle | Connector | Minimum plugin version | Status |
+| --- | --- | --- | --- |
+| 4.5, 5.0, 5.1 | `local_xpromptsuperset` 1.0.8 | `2026081010` | Baseline |
+| 5.2 | `local_xpromptsuperset` 2.0.8 | `2026082600` | Rollout gate until Moodle CI passes |
+
+Connector release zips must contain Moodle code only. The plugin repositories
+retain their old Compose sources for one rollback cycle, but their release
+builders reject any archive containing runtime files.

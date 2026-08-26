@@ -24,8 +24,14 @@ def main():
     connectors = compatibility['connectors']
     if connectors['1.x']['moodle'] != ['4.5', '5.0', '5.1']:
         raise AssertionError('connector 1.x Moodle range changed unexpectedly')
+    if connectors['1.x']['minimum_release'] != '1.0.8':
+        raise AssertionError('connector 1.x baseline changed unexpectedly')
     if connectors['2.x']['moodle'] != ['5.2']:
         raise AssertionError('connector 2.x must remain scoped to Moodle 5.2')
+    if connectors['2.x']['minimum_release'] != '2.0.8':
+        raise AssertionError('connector 2.x baseline changed unexpectedly')
+    if connectors['2.x']['status'] != 'rollout-gate':
+        raise AssertionError('connector 2.x must remain gated until Moodle CI passes')
 
     dockerfile = (ROOT / 'Dockerfile').read_text(encoding='utf-8')
     superset = compatibility['superset']

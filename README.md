@@ -71,9 +71,14 @@ Only files whose basename is exactly `.env` are accepted.
 | `backup` | Create a PostgreSQL metadata backup and manifest |
 | `restore` | Restore a selected backup with explicit confirmation |
 
+Before the first cutover, use `bin/backup-legacy.sh` against the still-running
+plugin-owned Compose project. The normal `backup` command applies only after
+XPBuilder owns the metadata service.
+
 Configuration is documented in [docs/configuration.md](docs/configuration.md),
 the connector boundary in [docs/connector-contract.md](docs/connector-contract.md),
-and cutover/rollback in [docs/migration.md](docs/migration.md).
+cutover/rollback in [docs/migration.md](docs/migration.md), and the current
+5.1/5.2 local migration map in [docs/local-cutover.md](docs/local-cutover.md).
 
 ## Compatibility
 
@@ -81,11 +86,15 @@ The machine-readable contract is [compatibility.json](compatibility.json).
 The initial extraction targets:
 
 - Moodle 4.5-5.1 with the `local_xpromptsuperset` 1.x connector.
-- Moodle 5.2 with the corrected `local_xpromptsuperset` 2.x connector.
+- Moodle 5.2 with `local_xpromptsuperset` 2.0.8 or newer.
 - Apache Superset 6.1.0 at the image digest recorded in `Dockerfile`.
 
 The 2.x connector release and its Moodle 5.2 CI coverage are rollout gates;
 XPBuilder must not be promoted to production 5.2 before they are green.
+
+Connector release archives are verified to exclude Docker Compose, Superset
+configuration, worker bootstrap, replica bootstrap, and branding-runtime
+files. Those assets are built and released only from this repository.
 
 ## Development
 

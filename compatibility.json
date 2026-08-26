@@ -11,12 +11,16 @@
     "1.x": {
       "component": "local_xpromptsuperset",
       "minimum_release": "1.0.8",
+      "minimum_plugin_version": 2026081010,
+      "branch": "release/1.x",
       "moodle": ["4.5", "5.0", "5.1"],
       "status": "baseline"
     },
     "2.x": {
       "component": "local_xpromptsuperset",
-      "minimum_release": "2.0.0",
+      "minimum_release": "2.0.8",
+      "minimum_plugin_version": 2026082600,
+      "branch": "main",
       "moodle": ["5.2"],
       "status": "rollout-gate"
     }

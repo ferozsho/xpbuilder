@@ -12,7 +12,16 @@ time.
 3. Record counts and IDs for dashboards, charts, datasets, embedded records,
    and Moodle mapping tables.
 4. Verify both replica threads and prove the reporting account cannot write.
-5. Create `bin/xpbuilder backup` and retain the legacy Compose definition.
+5. Create a custom-format metadata backup from the running legacy project:
+
+   ```bash
+   bin/backup-legacy.sh \
+     --compose-file /absolute/path/to/docker-compose.superset.yml \
+     --project LEGACY_PROJECT \
+     --destination /absolute/path/to/backups
+   ```
+
+   Retain the backup and legacy Compose definition together.
 6. Configure XPBuilder with the exact legacy volume names and
    `XPBUILDER_VOLUMES_EXTERNAL=true`.
 7. Run `bin/xpbuilder config`; do not run `init` or `upgrade`.
@@ -20,13 +29,15 @@ time.
 ## Cutover
 
 1. Put Advanced BI in native fallback/maintenance while keeping Moodle online.
-2. Take a final metadata backup.
+2. Take a final `bin/backup-legacy.sh` metadata backup.
 3. Stop the legacy Superset project without `--volumes` or `-v`.
 4. Start XPBuilder with `bin/xpbuilder --env-file /site/.env up`.
 5. Run `ps`, `health`, API contract, replica, Moodle mapping, and real browser
    checks.
-6. Re-enable Advanced BI only after all checks pass.
-7. Keep the legacy runtime files and backup for at least one release cycle.
+6. Create a second backup with `bin/xpbuilder backup` now that XPBuilder owns
+   the metadata service.
+7. Re-enable Advanced BI only after all checks pass.
+8. Keep the legacy runtime files and backup for at least one release cycle.
 
 First cutover must preserve container DNS aliases and must not run an automatic
 Superset metadata migration.
