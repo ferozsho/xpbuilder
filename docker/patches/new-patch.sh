@@ -117,7 +117,7 @@ if git_superset diff --quiet HEAD; then
     exit 1
 fi
 
-git_superset diff HEAD > "$out"
+git_superset diff --text HEAD > "$out"
 echo "Wrote $out ($(wc -l < "$out") lines)"
 
 pristine="$(pristine_dir)"
