@@ -110,13 +110,6 @@ export default function ReportListPage() {
         ),
       },
       {
-        title: t('Description'),
-        dataIndex: 'description',
-        key: 'description',
-        ellipsis: true,
-        render: (description: string) => description || '—',
-      },
-      {
         title: t('Datasets'),
         key: 'datasets',
         width: 200,
