@@ -139,6 +139,20 @@ const RowLevelSecurityList = lazy(
     ),
 );
 
+const ReportDesignerList = lazy(
+  () =>
+    import(
+      /* webpackChunkName: "ReportDesignerList" */ 'src/features/reportDesigner/ReportListPage'
+    ),
+);
+
+const ReportDesigner = lazy(
+  () =>
+    import(
+      /* webpackChunkName: "ReportDesigner" */ 'src/features/reportDesigner/ReportDesignerPage'
+    ),
+);
+
 const TaskList = lazy(
   () => import(/* webpackChunkName: "TaskList" */ 'src/pages/TaskList'),
 );
@@ -312,6 +326,18 @@ export const routes: Routes = [
   {
     path: '/rowlevelsecurity/list',
     Component: RowLevelSecurityList,
+  },
+  {
+    path: '/reportdesigner/list/',
+    Component: ReportDesignerList,
+  },
+  {
+    path: '/reportdesigner/designer/:reportId/',
+    Component: ReportDesigner,
+  },
+  {
+    path: '/reportdesigner/designer/',
+    Component: ReportDesigner,
   },
   {
     path: '/tasks/list/',

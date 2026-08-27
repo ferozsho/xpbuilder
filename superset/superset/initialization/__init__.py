@@ -208,6 +208,7 @@ class SupersetAppInitializer:  # pylint: disable=too-many-public-methods
         from superset.views.log.api import LogRestApi
         from superset.views.logs import ActionLogView
         from superset.views.redirect import RedirectView
+        from superset.views.report_designer.views import ReportDesignerView
         from superset.views.roles import RolesListView
         from superset.views.sql_lab.views import (
             SavedQueryView,
@@ -331,6 +332,15 @@ class SupersetAppInitializer:  # pylint: disable=too-many-public-methods
             category_icon="",
         )
 
+        appbuilder.add_link(
+            "Report Designer",
+            label=_("Report Designer"),
+            href=f"{app_root}/reportdesigner/list/",
+            icon="fa-file-text",
+            category="",
+            category_icon="",
+        )
+
         appbuilder.add_view(
             RolesListView,
             "List Roles",
@@ -438,6 +448,7 @@ class SupersetAppInitializer:  # pylint: disable=too-many-public-methods
         appbuilder.add_view_no_menu(EmbeddedView)
         appbuilder.add_view_no_menu(ExploreView)
         appbuilder.add_view_no_menu(ExplorePermalinkView)
+        appbuilder.add_view_no_menu(ReportDesignerView)
         appbuilder.add_view_no_menu(SavedQueryView)
         appbuilder.add_view_no_menu(SqllabView)
         appbuilder.add_view_no_menu(Superset)
