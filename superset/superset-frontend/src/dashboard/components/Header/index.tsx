@@ -749,6 +749,23 @@ const Header = (): JSX.Element => {
         ) : (
           <div css={actionButtonsStyle}>
             {NavExtension && <NavExtension />}
+            {dashboardInfo?.id && (
+              <Button
+                buttonStyle="secondary"
+                className="action-button"
+                aria-label={t('Sync to Moodle')}
+                href={`/local/xpromptsuperset/import.php?superset_dashboard_id=${
+                  dashboardInfo.id
+                }&name=${encodeURIComponent(
+                  dashboardInfo.dashboard_title || '',
+                )}&redirect=${encodeURIComponent(
+                  dashboardInfo.url || `/superset/dashboard/${dashboardInfo.id}/`,
+                )}`}
+              >
+                <Icons.SyncOutlined iconSize="m" />
+                {t('Sync to Moodle')}
+              </Button>
+            )}
             {userCanEdit && (
               <Button
                 buttonStyle="secondary"

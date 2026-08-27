@@ -1002,17 +1002,37 @@ export default function ReportDesignerPage() {
                               </Button>
                               {(publishResult?.dashboard_url ||
                                 report?.dashboard_id) && (
-                                <Button
-                                  size="small"
-                                  href={
-                                    publishResult?.dashboard_url ||
-                                    `/superset/dashboard/${report?.dashboard_id}/`
-                                  }
-                                  target="_blank"
-                                  rel="noreferrer"
-                                >
-                                  {t('Open dashboard')}
-                                </Button>
+                                <>
+                                  <Button
+                                    size="small"
+                                    href={
+                                      publishResult?.dashboard_url ||
+                                      `/superset/dashboard/${report?.dashboard_id}/`
+                                    }
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    {t('Open dashboard')}
+                                  </Button>
+                                  <Button
+                                    size="small"
+                                    type="primary"
+                                    ghost
+                                    href={`/local/xpromptsuperset/import.php?superset_dashboard_id=${
+                                      publishResult?.dashboard_id ||
+                                      report?.dashboard_id
+                                    }&name=${encodeURIComponent(
+                                      publishResult?.chart_name ||
+                                        report?.chart_name ||
+                                        '',
+                                    )}&redirect=${encodeURIComponent(
+                                      publishResult?.dashboard_url ||
+                                        `/superset/dashboard/${report?.dashboard_id}/`,
+                                    )}`}
+                                  >
+                                    {t('Sync to Moodle')}
+                                  </Button>
+                                </>
                               )}
                             </Space>
                           </StyledPublishedRow>

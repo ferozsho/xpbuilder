@@ -126,7 +126,7 @@ export default function ReportListPage() {
       {
         title: t('Published'),
         key: 'published',
-        width: 220,
+        width: 240,
         render: (_: unknown, report: Report) => {
           if (!report.chart_id) return '—';
           return (
@@ -142,13 +142,24 @@ export default function ReportListPage() {
                 </a>
               )}
               {report.dashboard_id != null && (
-                <a
-                  href={`/superset/dashboard/${report.dashboard_id}/`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {t('Dashboard')} #{report.dashboard_id}
-                </a>
+                <>
+                  <a
+                    href={`/superset/dashboard/${report.dashboard_id}/`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {t('Dashboard')} #{report.dashboard_id}
+                  </a>
+                  <a
+                    href={`/local/xpromptsuperset/import.php?superset_dashboard_id=${report.dashboard_id}&name=${encodeURIComponent(
+                      report.chart_name || report.name || '',
+                    )}&redirect=${encodeURIComponent(
+                      `/superset/dashboard/${report.dashboard_id}/`,
+                    )}`}
+                  >
+                    {t('Moodle')}
+                  </a>
+                </>
               )}
             </Space>
           );
