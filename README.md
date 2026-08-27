@@ -131,3 +131,50 @@ BuildKit (Docker 23+).
   delete its `.git`, update `superset/.xpbuilder-vendor` and
   `compatibility.json`, then rebuild.
 - Do not commit `node_modules/` or build artifacts inside `superset/`.
+
+## Reflecting code changes locally (dev workflow)
+
+After editing anything under `superset/` (frontend `superset-frontend/` or the
+Python backend), the running stack does not pick it up automatically. Run
+these three commands to rebuild and redeploy the local instance (example uses
+`instances/xp521/.env`, host port 8089):
+
+```bash
+cd /home/administrator/openxpertz-xpbuilder
+docker/patches/new-patch.sh 0001-fix-report-list-table-ui.patch                       # 1) export superset/ edits into the patch
+docker compose --env-file instances/xp521/.env build --build-arg DEV_MODE=false superset   # 2) rebuild with the frontend baked in
+docker compose --env-file instances/xp521/.env up -d superset superset-worker superset-beat  # 3) recreate the containers
+```
+
+Then hard-refresh the browser (**Ctrl+Shift+R**) — asset filenames are
+content-hashed, but a hard reload is the safe check.
+
+Why each step matters:
+
+1. **Patch export** — the build's `superset-src` stage (`docker/patches/apply.sh`)
+   validates every `docker/patches/*.patch` against the current `superset/`
+   tree. If the patch is stale relative to the tree, the build **aborts** with
+   a patch-apply failure. Always re-export after editing `superset/`.
+2. **`--build-arg DEV_MODE=false`** — site `.env` files set `DEV_MODE=true`,
+   which makes the build **skip the webpack frontend build entirely**. The
+   image then ships an empty SPA (no JS bundles; the page renders a spinner
+   shell). Overriding to `false` bakes the real frontend into the image.
+3. **`up -d`** — recreates the running containers on the new image; a build
+   alone does not update already-running containers.
+
+Notes:
+
+- **Backend-only (Python) changes** — same flow, but you can drop
+  `--build-arg DEV_MODE=false` (no webpack needed, faster). If the change adds
+  an Alembic migration or new permissions, also run
+  `docker exec xprompt52_superset superset db upgrade` and
+  `docker exec xprompt52_superset superset init`.
+- **Memory** — the webpack build is memory-hungry (up to ~8 GB). If it dies
+  from memory pressure, stop the heavy containers first (e.g. the 5.1
+  `xprompt_*` stack and `openxpertz-db`), build, then `docker start` them.
+- **Verify the frontend really baked in** — the image should contain the JS
+  bundles, not just `images/`:
+  `docker run --rm --entrypoint ls openxpertz-xpbuilder:local /app/superset/static/assets | wc -l`
+  (expect hundreds of files + `manifest.json`), and the served SPA HTML
+  (`curl -s http://localhost:8089/login/`) should contain
+  `script src="/static/assets/...entry.js"` tags.
