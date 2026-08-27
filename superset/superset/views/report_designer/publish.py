@@ -451,8 +451,35 @@ def _attach_chart_to_dashboard(dashboard: Dashboard, chart: Slice) -> None:
             layout = {}
     if not isinstance(layout, dict):
         layout = {}
-    _layout_add_chart(layout, chart)
+    # Idempotent: skip when the chart node is already in the layout.
+    if f"CHART-{chart.id}" not in layout:
+        _layout_add_chart(layout, chart)
     dashboard.position_json = json.dumps(layout)
+
+
+def _detach_chart_from_dashboard(chart: Slice, dashboard: Dashboard) -> None:
+    """Detach a chart from one dashboard (slices + rendered layout)."""
+    if chart in dashboard.slices:
+        dashboard.slices.remove(chart)
+
+    layout: dict[str, Any] = {}
+    if dashboard.position_json:
+        try:
+            layout = json.loads(dashboard.position_json)
+        except (TypeError, ValueError):
+            layout = {}
+    if isinstance(layout, dict):
+        _layout_remove_chart(layout, chart.id)
+        dashboard.position_json = json.dumps(layout)
+
+
+def _detach_chart(chart: Slice, exclude_dashboard: Dashboard | None = None) -> None:
+    """Detach a chart from every dashboard it is on, except ``exclude_dashboard``."""
+    for dashboard in list(chart.dashboards):
+        if exclude_dashboard is not None and dashboard.id == exclude_dashboard.id:
+            continue
+        _detach_chart_from_dashboard(chart, dashboard)
+    db.session.commit()
     db.session.commit()
 
 
@@ -481,19 +508,34 @@ def publish_report(
     dataset = _find_or_create_dataset(report, sql, database)
     _ensure_metrics(dataset, definition)
 
-    # Chart.
+    # Chart — reuse the existing one on republish, otherwise create fresh.
     params = _build_params(viz_key, dataset, definition)
     slice_name = (chart_name or report.name).strip() or "Untitled chart"
-    chart = Slice(
-        slice_name=slice_name,
-        datasource_id=dataset.id,
-        datasource_type="table",
-        datasource_name=dataset.table_name,
-        viz_type=VIZ_CATALOG[viz_key]["viz"],
-        params=json.dumps(params),
-        owners=[user] if user is not None else [],
-    )
-    ChartDAO.create(chart)
+    chart = None
+    if report.chart_id:
+        chart = db.session.get(Slice, report.chart_id)
+    created = chart is None
+    if created:
+        chart = Slice(
+            slice_name=slice_name,
+            datasource_id=dataset.id,
+            datasource_type="table",
+            datasource_name=dataset.table_name,
+            viz_type=VIZ_CATALOG[viz_key]["viz"],
+            params=json.dumps(params),
+            owners=[user] if user is not None else [],
+        )
+        db.session.add(chart)
+        db.session.flush()
+    else:
+        chart.slice_name = slice_name
+        chart.datasource_id = dataset.id
+        chart.datasource_type = "table"
+        chart.datasource_name = dataset.table_name
+        chart.viz_type = VIZ_CATALOG[viz_key]["viz"]
+        chart.params = json.dumps(params)
+        if user is not None and user not in chart.owners:
+            chart.owners.append(user)
     db.session.commit()
 
     # Dashboard (existing or new).
@@ -501,9 +543,11 @@ def publish_report(
     if dashboard_id:
         dashboard = DashboardDAO.find_by_id(dashboard_id, skip_base_filter=True)
         if dashboard is None:
-            db.session.delete(chart)
-            db.session.commit()
+            if created:
+                db.session.delete(chart)
+                db.session.commit()
             raise PublishError(_("Dashboard %(id)s not found", id=dashboard_id))
+        _detach_chart(chart, exclude_dashboard=dashboard)
         _attach_chart_to_dashboard(dashboard, chart)
     elif new_dashboard_name:
         dashboard = Dashboard(
@@ -514,7 +558,11 @@ def publish_report(
         )
         DashboardDAO.create(dashboard)
         db.session.commit()
+        _detach_chart(chart)
         _attach_chart_to_dashboard(dashboard, chart)
+    else:
+        # No dashboard requested — detach from any previously attached one.
+        _detach_chart(chart)
 
     # Persist publish metadata on the report.
     report.dataset_id = dataset.id
