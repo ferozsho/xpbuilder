@@ -34,13 +34,20 @@ import {
 import { Report } from './types';
 
 const StyledWrapper = styled.div`
-  padding: ${({ theme }) => theme.sizeUnit * 4}px;
   max-width: 1200px;
   margin: 0 auto;
+  padding: ${({ theme }) => theme.sizeUnit * 4}px;
 `;
 
 const StyledTitle = styled.h2`
   margin: 0 0 ${({ theme }) => theme.sizeUnit * 3}px;
+`;
+
+const StyledActions = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.sizeUnit}px;
+  white-space: nowrap;
 `;
 
 export default function ReportListPage() {
@@ -76,6 +83,8 @@ export default function ReportListPage() {
         title: t('Name'),
         dataIndex: 'name',
         key: 'name',
+        width: 280,
+        ellipsis: true,
         render: (name: string, report: Report) => (
           <a
             href={`/reportdesigner/designer/${report.id}/`}
@@ -98,6 +107,7 @@ export default function ReportListPage() {
       {
         title: t('Datasets'),
         key: 'datasets',
+        width: 190,
         render: (_: unknown, report: Report) => (
           <Space wrap>
             {report.definition.datasets.map(ds => (
@@ -112,16 +122,16 @@ export default function ReportListPage() {
         title: t('Changed'),
         dataIndex: 'changed_on',
         key: 'changed_on',
-        width: 180,
+        width: 175,
         render: (value?: string | null) =>
           value ? new Date(value).toLocaleString() : '—',
       },
       {
         title: t('Actions'),
         key: 'actions',
-        width: 200,
+        width: 270,
         render: (_: unknown, report: Report) => (
-          <Space>
+          <StyledActions>
             <Button
               type="primary"
               ghost
@@ -137,32 +147,29 @@ export default function ReportListPage() {
               href={exportReportUrl(report.id)}
               target="_blank"
               rel="noreferrer"
-            >
-              {t('CSV')}
-            </Button>
+              title={t('Export CSV')}
+            />
             <Button
               icon={<Icons.FileOutlined />}
               href={exportXlsxUrl(report.id)}
               target="_blank"
               rel="noreferrer"
-            >
-              {t('Excel')}
-            </Button>
+              title={t('Export Excel')}
+            />
             <Button
               icon={<Icons.ProfileOutlined />}
               href={exportPdfUrl(report.id)}
               target="_blank"
               rel="noreferrer"
-            >
-              {t('PDF')}
-            </Button>
+              title={t('Export PDF')}
+            />
             <Popconfirm
               title={t('Delete this report?')}
               onConfirm={() => handleDelete(report)}
             >
-              <Button danger icon={<Icons.DeleteOutlined />} />
+              <Button danger icon={<Icons.DeleteOutlined />} title={t('Delete')} />
             </Popconfirm>
-          </Space>
+          </StyledActions>
         ),
       },
     ],
@@ -189,6 +196,7 @@ export default function ReportListPage() {
           dataSource={reports}
           columns={columns}
           loading={loading}
+          scroll={{ x: 1050 }}
           pagination={{ pageSize: 20 }}
         />
       </StyledWrapper>
