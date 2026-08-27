@@ -51,6 +51,13 @@ before reporting success.
   `superset-frontend/package-lock.json` are bind-mounted directly from the
   build context for the `npm ci` cache and bypass the patch stage. Patch
   everything else (frontend source, Python, templates, static assets).
+- **NOTE (2026-08-27)**: the Report Designer feature code is committed directly
+  in this repo (see `superset/superset/views/report_designer/*`,
+  `superset/superset-frontend/src/features/reportDesigner/*`), so the former
+  `0001-fix-report-list-table-ui.patch` was REMOVED — it became stale the
+  moment the code was committed and aborted the build (neither forward nor
+  reverse applied once the files evolved). Do NOT re-add it. If you change
+  report designer code, commit the change directly (no patch needed).
 
 ## After adding a patch
 
