@@ -70,6 +70,7 @@ import FieldsPanel from './components/FieldsPanel';
 import FiltersPanel from './components/FiltersPanel';
 import RelationshipsPanel from './components/RelationshipsPanel';
 import PreviewPanel from './components/PreviewPanel';
+import ChartPreviewModal from './components/ChartPreviewModal';
 
 const { Panel } = Collapse;
 
@@ -118,6 +119,99 @@ const StyledMeta = styled.div`
   `}
 `;
 
+// ---- Publish to Superset (professional panel) ---------------------------
+
+const StyledPublish = styled.div`
+  ${({ theme }) => `
+    display: flex;
+    flex-direction: column;
+    gap: ${theme.sizeUnit * 3}px;
+  `}
+`;
+
+const StyledPublishHead = styled.div`
+  ${({ theme }) => `
+    display: flex;
+    align-items: center;
+    gap: ${theme.sizeUnit * 2}px;
+    padding: ${theme.sizeUnit * 2}px ${theme.sizeUnit * 3}px;
+    border-radius: ${theme.borderRadius}px;
+    background: linear-gradient(135deg, #eef2ff, #f5f3ff);
+    border: 1px solid #e0e7ff;
+  `}
+`;
+
+const StyledPublishIcon = styled.div`
+  ${({ theme }) => `
+    width: 38px;
+    height: 38px;
+    border-radius: ${theme.borderRadius}px;
+    background: linear-gradient(135deg, #4f46e5, #7c3aed);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+  `}
+`;
+
+const StyledPublishField = styled.div`
+  ${({ theme }) => `
+    display: flex;
+    flex-direction: column;
+    gap: ${theme.sizeUnit}px;
+  `}
+`;
+
+const StyledVizRow = styled.div`
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+
+  .publish-viz-select {
+    flex: 1;
+  }
+`;
+
+const StyledPublishActions = styled.div`
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+`;
+
+const StyledPublishedCard = styled.div`
+  ${({ theme }) => `
+    border: 1px solid #a7f3d0;
+    background: linear-gradient(135deg, #ecfdf5, #f0fdf4);
+    border-radius: ${theme.borderRadius}px;
+    padding: ${theme.sizeUnit * 2}px ${theme.sizeUnit * 3}px;
+    display: flex;
+    flex-direction: column;
+    gap: ${theme.sizeUnit * 2}px;
+  `}
+`;
+
+const StyledPublishedRow = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+`;
+
+const StyledPublishHint = styled.div`
+  ${({ theme }) => `
+    display: flex;
+    align-items: center;
+    gap: ${theme.sizeUnit * 2}px;
+    padding: ${theme.sizeUnit * 2}px;
+    border: 1px dashed ${theme.colorBorderSecondary};
+    border-radius: ${theme.borderRadius}px;
+    color: ${theme.colorTextDescription};
+  `}
+`;
+
 export default function ReportDesignerPage() {
   const history = useHistory();
   const { reportId } = useParams<{ reportId?: string }>();
@@ -151,6 +245,7 @@ export default function ReportDesignerPage() {
   const [unpublishing, setUnpublishing] = useState(false);
   const [publishResult, setPublishResult] = useState<PublishResult | null>(null);
   const [syncingTables, setSyncingTables] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   // ---- Data Modeler (Excel upload) -------------------------------------
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -554,7 +649,8 @@ export default function ReportDesignerPage() {
               )}
 
               <Collapse
-                defaultActiveKey={['relationships', 'fields', 'filters']}
+                accordion
+                defaultActiveKey={['fields']}
                 bordered
               >
                 <Panel
@@ -725,7 +821,7 @@ export default function ReportDesignerPage() {
                   header={
                     <Space size={4}>
                       <Icons.UploadOutlined />
-                      {t('Publish to Superset')}
+                      {t('Publish to Charts')}
                       {report?.chart_id ? (
                         <Tag color="green">{t('Published')}</Tag>
                       ) : null}
@@ -733,40 +829,64 @@ export default function ReportDesignerPage() {
                   }
                 >
                   {!reportId ? (
-                    <Typography.Text type="secondary">
+                    <StyledPublishHint>
+                      <Icons.UploadOutlined />
                       {t('Save the report first, then publish it as a chart '
                         + 'attached to a dashboard.')}
-                    </Typography.Text>
+                    </StyledPublishHint>
                   ) : (
-                    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                      <div>
-                        <Typography.Text strong>
-                          {t('Chart name')}
-                        </Typography.Text>
+                    <StyledPublish>
+                      <StyledPublishHead>
+                        <StyledPublishIcon>
+                          <Icons.UploadOutlined />
+                        </StyledPublishIcon>
+                        <div style={{ flex: 1 }}>
+                          <Typography.Text strong style={{ display: 'block' }}>
+                            {t('Publish to Charts')}
+                          </Typography.Text>
+                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                            {t('Turn this report into a chart and attach it '
+                              + 'to a dashboard.')}
+                          </Typography.Text>
+                        </div>
+                        {report?.chart_id && (
+                          <Tag color="green">{t('Published')}</Tag>
+                        )}
+                      </StyledPublishHead>
+
+                      <StyledPublishField>
+                        <Typography.Text strong>{t('Chart name')}</Typography.Text>
                         <Input
                           placeholder={t('Chart name (defaults to report name)')}
                           value={publishChartName}
                           onChange={event =>
                             setPublishChartName(event.target.value)
                           }
-                          style={{ width: '100%', marginTop: 4 }}
                         />
-                      </div>
+                      </StyledPublishField>
 
-                      <div>
+                      <StyledPublishField>
                         <Typography.Text strong>{t('Chart type')}</Typography.Text>
-                        <Select
-                          placeholder={t('Select a chart type…')}
-                          value={publishViz ?? null}
-                          options={vizTypes.map(item => ({
-                            label: item.requires_dttm
-                              ? `${item.label} ⏱`
-                              : item.label,
-                            value: item.key,
-                          }))}
-                          style={{ width: '100%', marginTop: 4 }}
-                          onChange={setPublishViz}
-                        />
+                        <StyledVizRow>
+                          <Select
+                            className="publish-viz-select"
+                            placeholder={t('Select a chart type…')}
+                            value={publishViz ?? null}
+                            options={vizTypes.map(item => ({
+                              label: item.requires_dttm
+                                ? `${item.label} ⏱`
+                                : item.label,
+                              value: item.key,
+                            }))}
+                            onChange={setPublishViz}
+                          />
+                          <Button
+                            icon={<Icons.EyeOutlined />}
+                            onClick={() => setPreviewOpen(true)}
+                          >
+                            {t('Preview')}
+                          </Button>
+                        </StyledVizRow>
                         {vizTypes.find(item => item.key === publishViz)
                           ?.requires_dttm && (
                           <Typography.Text
@@ -777,9 +897,9 @@ export default function ReportDesignerPage() {
                               + 'the report output.')}
                           </Typography.Text>
                         )}
-                      </div>
+                      </StyledPublishField>
 
-                      <div>
+                      <StyledPublishField>
                         <Typography.Text strong>
                           {t('Attach to dashboard')}
                         </Typography.Text>
@@ -794,7 +914,6 @@ export default function ReportDesignerPage() {
                             { label: t('＋ Create new dashboard'), value: 'new' },
                           ]}
                           showSearch
-                          style={{ width: '100%', marginTop: 4 }}
                           onChange={value =>
                             setPublishDashboardId(
                               value === 'new' ? 'new' : Number(value),
@@ -808,12 +927,11 @@ export default function ReportDesignerPage() {
                             onChange={event =>
                               setPublishNewDashboardName(event.target.value)
                             }
-                            style={{ width: '100%', marginTop: 8 }}
                           />
                         )}
-                      </div>
+                      </StyledPublishField>
 
-                      <Space>
+                      <StyledPublishActions>
                         <Button
                           type="primary"
                           icon={<Icons.UploadOutlined />}
@@ -834,59 +952,68 @@ export default function ReportDesignerPage() {
                             {t('Unpublish')}
                           </Button>
                         )}
-                      </Space>
+                      </StyledPublishActions>
 
                       {(publishResult || report?.chart_id) && (
-                        <div
-                          style={{
-                            border: '1px solid #d9f7be',
-                            background: '#f6ffed',
-                            borderRadius: 8,
-                            padding: 12,
-                          }}
-                        >
-                          <Typography.Text strong>
-                            📊 {publishResult?.chart_name || report?.chart_name}
-                          </Typography.Text>
-                          <Space wrap style={{ marginTop: 8 }}>
-                            <Button
-                              size="small"
-                              href={publishResult?.explore_url || `/explore/?slice_id=${report?.chart_id}`}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              {t('Open in Explore')}
-                            </Button>
-                            {(publishResult?.dashboard_url ||
-                              report?.dashboard_id) && (
+                        <StyledPublishedCard>
+                          <StyledPublishedRow>
+                            <Space>
+                              <Icons.CheckCircleFilled
+                                style={{ color: '#16a34a' }}
+                              />
+                              <Typography.Text strong>
+                                📊{' '}
+                                {publishResult?.chart_name || report?.chart_name}
+                              </Typography.Text>
+                            </Space>
+                            <Space wrap>
                               <Button
                                 size="small"
-                                href={publishResult?.dashboard_url || `/superset/dashboard/${report?.dashboard_id}/`}
+                                href={
+                                  publishResult?.explore_url ||
+                                  `/explore/?slice_id=${report?.chart_id}`
+                                }
                                 target="_blank"
                                 rel="noreferrer"
                               >
-                                {t('Open dashboard')}
+                                {t('Open in Explore')}
                               </Button>
-                            )}
-                          </Space>
-                          <div style={{ fontSize: 12, marginTop: 8 }}>
+                              {(publishResult?.dashboard_url ||
+                                report?.dashboard_id) && (
+                                <Button
+                                  size="small"
+                                  href={
+                                    publishResult?.dashboard_url ||
+                                    `/superset/dashboard/${report?.dashboard_id}/`
+                                  }
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  {t('Open dashboard')}
+                                </Button>
+                              )}
+                            </Space>
+                          </StyledPublishedRow>
+                          <Typography.Text
+                            type="secondary"
+                            style={{ fontSize: 12 }}
+                          >
                             {publishResult?.chart_id != null && (
-                              <Typography.Text type="secondary">
-                                {t('Chart')} #{publishResult?.chart_id || report?.chart_id}
+                              <>
+                                {t('Chart')} #
+                                {publishResult?.chart_id || report?.chart_id}
                                 {' · '}
-                              </Typography.Text>
+                              </>
                             )}
-                            <Typography.Text type="secondary">
-                              {t('Dashboard')}{' '}
-                              #{publishResult?.dashboard_id || report?.dashboard_id}
-                              {publishResult?.dashboard_title
-                                ? ` · ${publishResult.dashboard_title}`
-                                : ''}
-                            </Typography.Text>
-                          </div>
-                        </div>
+                            {t('Dashboard')} #
+                            {publishResult?.dashboard_id || report?.dashboard_id}
+                            {publishResult?.dashboard_title
+                              ? ` · ${publishResult.dashboard_title}`
+                              : ''}
+                          </Typography.Text>
+                        </StyledPublishedCard>
                       )}
-                    </Space>
+                    </StyledPublish>
                   )}
                 </Panel>
               </Collapse>
@@ -944,6 +1071,19 @@ export default function ReportDesignerPage() {
           </Upload>
         </Space>
       </Modal>
+
+      <ChartPreviewModal
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        onPublish={handlePublish}
+        definition={definition}
+        vizKey={publishViz}
+        vizLabel={
+          vizTypes.find(item => item.key === publishViz)?.label ?? publishViz
+        }
+        chartName={publishChartName || name}
+        publishing={publishing}
+      />
     </>
   );
 }

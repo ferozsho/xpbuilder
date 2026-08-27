@@ -138,15 +138,15 @@ def _layout_tab_target(layout: dict[str, Any]) -> str | None:
     """Return the first TAB id under a TABS container, if the layout is tabbed."""
     for container_id in ("ROOT_ID", "GRID_ID"):
         container = layout.get(container_id)
-        if not container:
+        if not isinstance(container, dict):
             continue
         for child_id in container.get("children", []):
             child = layout.get(child_id)
-            if not child or child.get("type") != "TABS":
+            if not isinstance(child, dict) or child.get("type") != "TABS":
                 continue
             for tab_id in child.get("children", []):
                 tab = layout.get(tab_id)
-                if tab and tab.get("type") == "TAB":
+                if isinstance(tab, dict) and tab.get("type") == "TAB":
                     return tab_id
     return None
 
@@ -164,7 +164,11 @@ def _layout_add_chart(layout: dict[str, Any], chart: Slice) -> None:
     chart_key = f"CHART-{chart.id}"
 
     parent_component = layout.get(parent_id)
-    parent_parents = list(parent_component.get("parents", [])) if parent_component else []
+    if not isinstance(parent_component, dict):
+        parent_component = None
+    parent_parents = (
+        list(parent_component.get("parents", [])) if parent_component else []
+    )
     if parent_id == "GRID_ID" and not parent_parents:
         parent_parents = ["ROOT_ID"]
     row_parents = parent_parents + [parent_id]
@@ -243,6 +247,8 @@ def _layout_remove_chart(layout: dict[str, Any], chart_id: int | None) -> None:
     layout.pop(chart_key, None)
 
     for col_key, column in list(layout.items()):
+        if not isinstance(column, dict):
+            continue
         if column.get("type") != "COLUMN" or chart_key not in column.get("children", []):
             continue
         column["children"].remove(chart_key)
@@ -251,6 +257,8 @@ def _layout_remove_chart(layout: dict[str, Any], chart_id: int | None) -> None:
         layout.pop(col_key, None)
         # Drop the now-empty row (and its reference from the parent).
         for row_key, row in list(layout.items()):
+            if not isinstance(row, dict):
+                continue
             if row.get("type") != "ROW" or col_key not in row.get("children", []):
                 continue
             row["children"].remove(col_key)
@@ -258,6 +266,8 @@ def _layout_remove_chart(layout: dict[str, Any], chart_id: int | None) -> None:
                 break
             layout.pop(row_key, None)
             for parent_key, parent in list(layout.items()):
+                if not isinstance(parent, dict):
+                    continue
                 if parent.get("type") in ("GRID", "TAB") and row_key in parent.get(
                     "children", []
                 ):
