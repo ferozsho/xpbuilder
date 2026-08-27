@@ -35,19 +35,19 @@ import { Report } from './types';
 
 const StyledWrapper = styled.div`
   width: 100%;
-  padding: ${({ theme }) => theme.gridUnit * 6}px;
+  padding: ${({ theme }) => theme.sizeUnit * 6}px;
   max-width: 1400px;
   margin: 0 auto;
 
   .ant-table-wrapper {
-    background: ${({ theme }) => theme.colors.grayscale.light5};
+    background: ${({ theme }) => theme.colorFillAlter};
     border-radius: ${({ theme }) => theme.borderRadius}px;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   }
 
   .ant-table-thead > tr > th {
-    font-weight: ${({ theme }) => theme.typography.weights.bold};
-    background: ${({ theme }) => theme.colors.grayscale.light4};
+    font-weight: ${({ theme }) => theme.fontWeightStrong};
+    background: ${({ theme }) => theme.colorFillSecondary};
   }
 
   .ant-table-tbody > tr > td {
@@ -58,7 +58,7 @@ const StyledWrapper = styled.div`
 const StyledActions = styled.div`
   display: inline-flex;
   align-items: center;
-  gap: ${({ theme }) => theme.gridUnit * 2}px;
+  gap: ${({ theme }) => theme.sizeUnit * 2}px;
   white-space: nowrap;
 `;
 
