@@ -212,6 +212,26 @@ const StyledPublishHint = styled.div`
   `}
 `;
 
+// Properly-sized, centered loaders (avoids the oversized / clipped floating
+// spinner that positions against whatever ancestor happens to be positioned).
+const StyledPageLoader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 55vh;
+  padding: 40px;
+`;
+
+const StyledInlineLoader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 220px;
+  padding: 32px;
+`;
+
 export default function ReportDesignerPage() {
   const history = useHistory();
   const { reportId } = useParams<{ reportId?: string }>();
@@ -529,9 +549,9 @@ export default function ReportDesignerPage() {
 
   if (loadingReport) {
     return (
-      <div style={{ textAlign: 'center', padding: 80 }}>
-        <Loading position="floating" />
-      </div>
+      <StyledPageLoader>
+        <Loading position="normal" size="m" />
+      </StyledPageLoader>
     );
   }
 
@@ -639,7 +659,9 @@ export default function ReportDesignerPage() {
           </StyledToolbar>
 
           {!datasetsLoaded ? (
-            <Loading position="floating" />
+            <StyledInlineLoader>
+              <Loading position="normal" size="m" />
+            </StyledInlineLoader>
           ) : (
             <>
               {definition.datasets.length === 0 && (
