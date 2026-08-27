@@ -27,7 +27,7 @@ from __future__ import annotations
 from typing import Any
 
 from flask_appbuilder import Model
-from sqlalchemy import Column, Integer, String, Text
+from sqlalchemy import Column, DateTime, Integer, String, Text
 
 from superset.models.helpers import AuditMixinNullable
 from superset.utils import json
@@ -60,11 +60,26 @@ class ReportDesigner(AuditMixinNullable, Model):
     # }
     definition = Column(Text, nullable=False, default="{}")
 
+    # Publish metadata — set when the report is published to Superset as a
+    # chart attached to a dashboard.
+    dataset_id = Column(Integer, nullable=True)
+    chart_id = Column(Integer, nullable=True)
+    dashboard_id = Column(Integer, nullable=True)
+    viz_type = Column(String(64), nullable=True)
+    chart_name = Column(String(256), nullable=True)
+    published_at = Column(DateTime, nullable=True)
+
     export_fields = [
         "id",
         "name",
         "description",
         "definition",
+        "dataset_id",
+        "chart_id",
+        "dashboard_id",
+        "viz_type",
+        "chart_name",
+        "published_at",
     ]
 
     def get_definition(self) -> dict[str, Any]:
@@ -85,6 +100,14 @@ class ReportDesigner(AuditMixinNullable, Model):
             "name": self.name,
             "description": self.description or "",
             "definition": self.get_definition(),
+            "dataset_id": self.dataset_id,
+            "chart_id": self.chart_id,
+            "dashboard_id": self.dashboard_id,
+            "viz_type": self.viz_type,
+            "chart_name": self.chart_name,
+            "published_at": self.published_at.isoformat()
+            if self.published_at
+            else None,
             "changed_on": self.changed_on.isoformat() if self.changed_on else None,
             "created_on": self.created_on.isoformat() if self.created_on else None,
         }

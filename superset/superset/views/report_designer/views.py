@@ -30,22 +30,34 @@ from datetime import datetime
 from io import StringIO
 from typing import Any
 
-from flask import request, Response
+from flask import g, request, Response
 from flask_appbuilder import expose
 from flask_appbuilder.security.decorators import has_access, has_access_api
 from flask_babel import gettext as _
 
 from superset import db
+from superset.models.core import Database
 from superset.models.report_designer import ReportDesigner
 from superset.superset_typing import FlaskResponse
 from superset.utils import core as utils
 from superset.views.base import BaseSupersetView
 from superset.views.error_handling import json_error_response
 
+from .publish import (
+    publish_report,
+    PublishError,
+    unpublish_report,
+    VIZ_CATALOG,
+)
 from .sql_builder import (
     datasets_payload,
     execute_report,
     ReportDesignerError,
+)
+from .table_sync import (
+    find_reporting_database,
+    sync_tables,
+    TableSyncError,
 )
 
 logger = logging.getLogger(__name__)
@@ -128,6 +140,66 @@ class ReportDesignerView(BaseSupersetView):
     @has_access_api
     def api_datasets(self) -> FlaskResponse:
         return self.json_response({"result": datasets_payload()})
+
+    @expose("/api/sync-tables/", methods=("POST",))
+    @has_access_api
+    def api_sync_tables(self) -> FlaskResponse:
+        """Register every table of the Moodle (read-only) database as a dataset."""
+        try:
+            payload = request.get_json(force=True, silent=True) or {}
+            database_id = int(payload.get("database_id") or 0)
+            if not database_id:
+                database = find_reporting_database()
+                database_id = database.id if database else 0
+            if not database_id:
+                return json_error_response(
+                    _("No reporting database configured"), 400
+                )
+            return self.json_response(sync_tables(database_id))
+        except TableSyncError as ex:
+            return json_error_response(str(ex), 400)
+        except Exception as ex:  # pylint: disable=broad-except
+            db.session.rollback()
+            logger.exception("Failed to sync tables")
+            return json_error_response(utils.error_msg_from_exception(ex), 400)
+
+    @expose("/api/viz-types/", methods=("GET",))
+    @has_access_api
+    def api_viz_types(self) -> FlaskResponse:
+        """List the visualization types a report can be published as."""
+        return self.json_response(
+            {
+                "result": [
+                    {
+                        "key": key,
+                        "label": str(item["label"]),
+                        "requires_dttm": bool(item.get("requires_dttm")),
+                    }
+                    for key, item in VIZ_CATALOG.items()
+                ]
+            }
+        )
+
+    @expose("/api/dashboards/", methods=("GET",))
+    @has_access_api
+    def api_dashboards(self) -> FlaskResponse:
+        """List published Superset dashboards for the publish picker."""
+        from superset.models.dashboard import Dashboard
+
+        dashboards = (
+            db.session.query(Dashboard.id, Dashboard.dashboard_title)
+            .filter(Dashboard.published.is_(True))
+            .order_by(Dashboard.dashboard_title.asc())
+            .all()
+        )
+        return self.json_response(
+            {
+                "result": [
+                    {"id": dashboard.id, "dashboard_title": dashboard.dashboard_title}
+                    for dashboard in dashboards
+                ]
+            }
+        )
 
     @expose("/api/", methods=("POST",))
     @has_access_api
@@ -214,6 +286,56 @@ class ReportDesignerView(BaseSupersetView):
             return json_error_response(str(ex), 400)
         except Exception as ex:  # pylint: disable=broad-except
             logger.exception("Failed to preview report")
+            return json_error_response(utils.error_msg_from_exception(ex), 400)
+
+    @expose("/api/<int:report_id>/publish/", methods=("POST",))
+    @has_access_api
+    def api_publish(self, report_id: int) -> FlaskResponse:
+        """Publish a report as a Superset chart attached to a dashboard."""
+        try:
+            report = db.session.get(ReportDesigner, report_id)
+            if report is None:
+                return Response(status=404)
+            payload = request.get_json(force=True, silent=True) or {}
+            user = getattr(g, "user", None)
+            if user is None or getattr(user, "is_anonymous", False):
+                user = None
+            result = publish_report(
+                report,
+                viz_key=str(payload.get("viz_type") or "table"),
+                chart_name=payload.get("chart_name"),
+                dashboard_id=(
+                    int(payload["dashboard_id"])
+                    if payload.get("dashboard_id")
+                    else None
+                ),
+                new_dashboard_name=payload.get("new_dashboard_name"),
+                user=user,
+            )
+            return self.json_response(result)
+        except PublishError as ex:
+            db.session.rollback()
+            return json_error_response(str(ex), 400)
+        except Exception as ex:  # pylint: disable=broad-except
+            db.session.rollback()
+            logger.exception("Failed to publish report")
+            return json_error_response(utils.error_msg_from_exception(ex), 400)
+
+    @expose("/api/<int:report_id>/unpublish/", methods=("POST",))
+    @has_access_api
+    def api_unpublish(self, report_id: int) -> FlaskResponse:
+        """Detach a published report's chart/dashboard and clean up."""
+        try:
+            report = db.session.get(ReportDesigner, report_id)
+            if report is None:
+                return Response(status=404)
+            return self.json_response(unpublish_report(report))
+        except PublishError as ex:
+            db.session.rollback()
+            return json_error_response(str(ex), 400)
+        except Exception as ex:  # pylint: disable=broad-except
+            db.session.rollback()
+            logger.exception("Failed to unpublish report")
             return json_error_response(utils.error_msg_from_exception(ex), 400)
 
     @expose("/api/<int:report_id>/export.csv/", methods=("GET",))
@@ -311,7 +433,6 @@ class ReportDesignerView(BaseSupersetView):
     @has_access_api
     def api_upload(self) -> FlaskResponse:
         """Ingest an Excel/CSV file into a writable database as a dataset."""
-        from superset.models.core import Database
         from superset.views.report_designer.excel_ingest import (
             ingest_excel,
             IngestError,

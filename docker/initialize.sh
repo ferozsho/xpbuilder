@@ -99,6 +99,9 @@ PY
     )"
     superset set-database-uri -d "Moodle Reporting" -u "$reporting_uri"
     unset reporting_uri
+
+    echo "Registering all Moodle tables as datasets"
+    superset sync-moodle-tables || echo "WARNING: Moodle table sync failed (non-fatal)"
 fi
 
 echo "Ensuring the embedded Gamma role can persist dashboard colors"

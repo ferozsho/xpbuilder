@@ -99,6 +99,53 @@ export type Report = {
   definition: ReportDefinition;
   changed_on?: string | null;
   created_on?: string | null;
+  /** Publish metadata — set when the report is published to Superset. */
+  dataset_id?: number | null;
+  chart_id?: number | null;
+  dashboard_id?: number | null;
+  viz_type?: string | null;
+  chart_name?: string | null;
+  published_at?: string | null;
+};
+
+export type DashboardOption = {
+  id: number;
+  dashboard_title: string;
+};
+
+export type VizTypeOption = {
+  key: string;
+  label: string;
+  requires_dttm: boolean;
+};
+
+export type SyncTablesResult = {
+  database_id: number;
+  database_name: string;
+  total: number;
+  created: number;
+  skipped: number;
+  failed: Array<{ table: string; error: string }>;
+  tables: string[];
+};
+
+export type PublishResult = {
+  report_id: number;
+  dataset_id: number;
+  chart_id: number;
+  viz_type: string;
+  chart_name: string;
+  dashboard_id: number | null;
+  dashboard_title: string | null;
+  explore_url: string;
+  dashboard_url: string | null;
+};
+
+export type PublishPayload = {
+  viz_type: string;
+  chart_name?: string;
+  dashboard_id?: number;
+  new_dashboard_name?: string;
 };
 
 export type PreviewResult = {

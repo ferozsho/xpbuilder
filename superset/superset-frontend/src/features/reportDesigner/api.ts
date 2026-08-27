@@ -18,10 +18,15 @@
  */
 import { SupersetClient } from '@superset-ui/core';
 import {
+  DashboardOption,
   DatasetOption,
   PreviewResult,
+  PublishPayload,
+  PublishResult,
   Report,
   ReportDefinition,
+  SyncTablesResult,
+  VizTypeOption,
 } from './types';
 
 const BASE = '/reportdesigner/api';
@@ -78,6 +83,49 @@ export async function previewReport(
     jsonPayload: { definition },
   });
   return json;
+}
+
+/** Register every table of the Moodle (read-only) database as a dataset. */
+export async function syncTables(
+  databaseId?: number,
+): Promise<SyncTablesResult> {
+  const { json } = await SupersetClient.post({
+    endpoint: `${BASE}/sync-tables/`,
+    jsonPayload: databaseId ? { database_id: databaseId } : {},
+  });
+  return json;
+}
+
+/** List dashboards for the publish picker. */
+export async function fetchDashboards(): Promise<DashboardOption[]> {
+  const { json } = await SupersetClient.get({ endpoint: `${BASE}/dashboards/` });
+  return json.result ?? [];
+}
+
+/** List the visualization types a report can be published as. */
+export async function fetchVizTypes(): Promise<VizTypeOption[]> {
+  const { json } = await SupersetClient.get({ endpoint: `${BASE}/viz-types/` });
+  return json.result ?? [];
+}
+
+/** Publish a report as a Superset chart attached to a dashboard. */
+export async function publishReport(
+  id: number,
+  payload: PublishPayload,
+): Promise<PublishResult> {
+  const { json } = await SupersetClient.post({
+    endpoint: `${BASE}/${id}/publish/`,
+    jsonPayload: payload,
+  });
+  return json;
+}
+
+/** Detach a published report's chart/dashboard and clean up. */
+export async function unpublishReport(id: number): Promise<void> {
+  await SupersetClient.post({
+    endpoint: `${BASE}/${id}/unpublish/`,
+    jsonPayload: {},
+  });
 }
 
 export function exportReportUrl(id: number): string {

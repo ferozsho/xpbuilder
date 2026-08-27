@@ -38,9 +38,14 @@ import SubMenu from 'src/features/home/SubMenu';
 import {
   createReport,
   fetchDatabases,
+  fetchDashboards,
   fetchDatasets,
   fetchReport,
+  fetchVizTypes,
   previewReport,
+  publishReport,
+  syncTables,
+  unpublishReport,
   updateReport,
   exportPdfUrl,
   exportReportUrl,
@@ -48,13 +53,17 @@ import {
   uploadExcel,
 } from './api';
 import {
+  DashboardOption,
   DatasetOption,
   DatabaseOption,
   EMPTY_DEFINITION,
   FieldRef,
   MetricRef,
   PreviewResult,
+  PublishResult,
+  Report,
   ReportDefinition,
+  VizTypeOption,
 } from './types';
 import DatasetPanel from './components/DatasetPanel';
 import FieldsPanel from './components/FieldsPanel';
@@ -128,6 +137,21 @@ export default function ReportDesignerPage() {
   const [previewResult, setPreviewResult] = useState<PreviewResult | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
+  // ---- Publish to Superset ----------------------------------------------
+  const [report, setReport] = useState<Report | null>(null);
+  const [dashboards, setDashboards] = useState<DashboardOption[]>([]);
+  const [vizTypes, setVizTypes] = useState<VizTypeOption[]>([]);
+  const [publishViz, setPublishViz] = useState<string>('table');
+  const [publishChartName, setPublishChartName] = useState('');
+  const [publishDashboardId, setPublishDashboardId] = useState<
+    number | 'new' | undefined
+  >();
+  const [publishNewDashboardName, setPublishNewDashboardName] = useState('');
+  const [publishing, setPublishing] = useState(false);
+  const [unpublishing, setUnpublishing] = useState(false);
+  const [publishResult, setPublishResult] = useState<PublishResult | null>(null);
+  const [syncingTables, setSyncingTables] = useState(false);
+
   // ---- Data Modeler (Excel upload) -------------------------------------
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadDatabase, setUploadDatabase] = useState<number | undefined>();
@@ -143,6 +167,21 @@ export default function ReportDesignerPage() {
       .finally(() => setDatasetsLoaded(true));
   }, [addDangerToast]);
 
+  // ---- load publish options (dashboards + viz types) --------------------
+  useEffect(() => {
+    fetchDashboards()
+      .then(list => setDashboards(list))
+      .catch(() => addDangerToast(t('Failed to load dashboards')));
+    fetchVizTypes()
+      .then(list => {
+        setVizTypes(list);
+        if (list.length > 0) {
+          setPublishViz(list[0].key);
+        }
+      })
+      .catch(() => addDangerToast(t('Failed to load chart types')));
+  }, [addDangerToast]);
+
   // ---- load report definition ----------------------------------------
   useEffect(() => {
     if (!reportId) {
@@ -151,17 +190,23 @@ export default function ReportDesignerPage() {
     }
     setLoadingReport(true);
     fetchReport(Number(reportId))
-      .then(report => {
-        setName(report.name);
-        setDescription(report.description);
+      .then(reportData => {
+        setName(reportData.name);
+        setDescription(reportData.description);
         setDefinition({
           ...EMPTY_DEFINITION,
-          ...report.definition,
+          ...reportData.definition,
         });
+        setReport(reportData);
+        setPublishChartName(reportData.name);
+        if (reportData.viz_type) {
+          const match = vizTypes.find(item => item.key === reportData.viz_type);
+          if (match) setPublishViz(match.key);
+        }
       })
       .catch(() => addDangerToast(t('Failed to load report')))
       .finally(() => setLoadingReport(false));
-  }, [reportId, addDangerToast]);
+  }, [reportId, addDangerToast, vizTypes]);
 
   // ---- definition helpers ----------------------------------------------
   const updateDefinition = useCallback((patch: Partial<ReportDefinition>) => {
@@ -265,12 +310,77 @@ export default function ReportDesignerPage() {
     action
       .then(saved => {
         addSuccessToast(t('Report saved'));
+        setReport(saved);
         if (!reportId) {
           history.replace(`/reportdesigner/designer/${saved.id}/`);
         }
       })
       .catch(() => addDangerToast(t('Failed to save report')))
       .finally(() => setSaving(false));
+  };
+
+  // ---- sync Moodle tables -------------------------------------------------
+  const handleSyncTables = () => {
+    setSyncingTables(true);
+    syncTables()
+      .then(result => {
+        addSuccessToast(
+          `${t('Synced')} ${result.created} ${t('new')}, ` +
+            `${result.skipped} ${t('existing')}`,
+        );
+        return fetchDatasets();
+      })
+      .then(list => setDatasets(list))
+      .catch(() => addDangerToast(t('Failed to sync tables')))
+      .finally(() => setSyncingTables(false));
+  };
+
+  // ---- publish / unpublish ------------------------------------------------
+  const handlePublish = () => {
+    if (!reportId) {
+      addDangerToast(t('Save the report first to publish it.'));
+      return;
+    }
+    setPublishing(true);
+    publishReport(Number(reportId), {
+      viz_type: publishViz,
+      ...(publishChartName ? { chart_name: publishChartName } : {}),
+      ...(publishDashboardId === 'new'
+        ? { new_dashboard_name: publishNewDashboardName }
+        : publishDashboardId
+          ? { dashboard_id: publishDashboardId }
+          : {}),
+    })
+      .then(result => {
+        setPublishResult(result);
+        addSuccessToast(t('Chart published'));
+        return fetchReport(Number(reportId));
+      })
+      .then(updated => {
+        setReport(updated);
+        return fetchDashboards();
+      })
+      .then(list => setDashboards(list))
+      .catch(err => {
+        const message =
+          (err as { message?: string })?.message || t('Failed to publish chart');
+        addDangerToast(message);
+      })
+      .finally(() => setPublishing(false));
+  };
+
+  const handleUnpublish = () => {
+    if (!reportId) return;
+    setUnpublishing(true);
+    unpublishReport(Number(reportId))
+      .then(() => {
+        addSuccessToast(t('Report unpublished'));
+        setPublishResult(null);
+        return fetchReport(Number(reportId));
+      })
+      .then(updated => setReport(updated))
+      .catch(() => addDangerToast(t('Failed to unpublish report')))
+      .finally(() => setUnpublishing(false));
   };
 
   const handlePreview = () => {
@@ -362,6 +472,8 @@ export default function ReportDesignerPage() {
             datasets={datasets}
             selectedDatasetIds={definition.datasets.map(ds => ds.id)}
             onSelectDataset={handleSelectDataset}
+            onSyncTables={handleSyncTables}
+            syncing={syncingTables}
           />
         </StyledLeft>
 
@@ -606,6 +718,176 @@ export default function ReportDesignerPage() {
                     filters={definition.filters}
                     onChange={filters => updateDefinition({ filters })}
                   />
+                </Panel>
+
+                <Panel
+                  key="publish"
+                  header={
+                    <Space size={4}>
+                      <Icons.UploadOutlined />
+                      {t('Publish to Superset')}
+                      {report?.chart_id ? (
+                        <Tag color="green">{t('Published')}</Tag>
+                      ) : null}
+                    </Space>
+                  }
+                >
+                  {!reportId ? (
+                    <Typography.Text type="secondary">
+                      {t('Save the report first, then publish it as a chart '
+                        + 'attached to a dashboard.')}
+                    </Typography.Text>
+                  ) : (
+                    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                      <div>
+                        <Typography.Text strong>
+                          {t('Chart name')}
+                        </Typography.Text>
+                        <Input
+                          placeholder={t('Chart name (defaults to report name)')}
+                          value={publishChartName}
+                          onChange={event =>
+                            setPublishChartName(event.target.value)
+                          }
+                          style={{ width: '100%', marginTop: 4 }}
+                        />
+                      </div>
+
+                      <div>
+                        <Typography.Text strong>{t('Chart type')}</Typography.Text>
+                        <Select
+                          placeholder={t('Select a chart type…')}
+                          value={publishViz ?? null}
+                          options={vizTypes.map(item => ({
+                            label: item.requires_dttm
+                              ? `${item.label} ⏱`
+                              : item.label,
+                            value: item.key,
+                          }))}
+                          style={{ width: '100%', marginTop: 4 }}
+                          onChange={setPublishViz}
+                        />
+                        {vizTypes.find(item => item.key === publishViz)
+                          ?.requires_dttm && (
+                          <Typography.Text
+                            type="warning"
+                            style={{ fontSize: 12 }}
+                          >
+                            {t('This chart type needs a date/time column in '
+                              + 'the report output.')}
+                          </Typography.Text>
+                        )}
+                      </div>
+
+                      <div>
+                        <Typography.Text strong>
+                          {t('Attach to dashboard')}
+                        </Typography.Text>
+                        <Select
+                          placeholder={t('Select a dashboard or create one…')}
+                          value={publishDashboardId ?? null}
+                          options={[
+                            ...dashboards.map(dash => ({
+                              label: dash.dashboard_title,
+                              value: dash.id,
+                            })),
+                            { label: t('＋ Create new dashboard'), value: 'new' },
+                          ]}
+                          showSearch
+                          style={{ width: '100%', marginTop: 4 }}
+                          onChange={value =>
+                            setPublishDashboardId(
+                              value === 'new' ? 'new' : Number(value),
+                            )
+                          }
+                        />
+                        {publishDashboardId === 'new' && (
+                          <Input
+                            placeholder={t('New dashboard name')}
+                            value={publishNewDashboardName}
+                            onChange={event =>
+                              setPublishNewDashboardName(event.target.value)
+                            }
+                            style={{ width: '100%', marginTop: 8 }}
+                          />
+                        )}
+                      </div>
+
+                      <Space>
+                        <Button
+                          type="primary"
+                          icon={<Icons.UploadOutlined />}
+                          loading={publishing}
+                          onClick={handlePublish}
+                        >
+                          {report?.chart_id
+                            ? t('Republish chart')
+                            : t('Publish chart')}
+                        </Button>
+                        {report?.chart_id && (
+                          <Button
+                            danger
+                            icon={<Icons.DeleteOutlined />}
+                            loading={unpublishing}
+                            onClick={handleUnpublish}
+                          >
+                            {t('Unpublish')}
+                          </Button>
+                        )}
+                      </Space>
+
+                      {(publishResult || report?.chart_id) && (
+                        <div
+                          style={{
+                            border: '1px solid #d9f7be',
+                            background: '#f6ffed',
+                            borderRadius: 8,
+                            padding: 12,
+                          }}
+                        >
+                          <Typography.Text strong>
+                            📊 {publishResult?.chart_name || report?.chart_name}
+                          </Typography.Text>
+                          <Space wrap style={{ marginTop: 8 }}>
+                            <Button
+                              size="small"
+                              href={publishResult?.explore_url || `/explore/?slice_id=${report?.chart_id}`}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {t('Open in Explore')}
+                            </Button>
+                            {(publishResult?.dashboard_url ||
+                              report?.dashboard_id) && (
+                              <Button
+                                size="small"
+                                href={publishResult?.dashboard_url || `/superset/dashboard/${report?.dashboard_id}/`}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                {t('Open dashboard')}
+                              </Button>
+                            )}
+                          </Space>
+                          <div style={{ fontSize: 12, marginTop: 8 }}>
+                            {publishResult?.chart_id != null && (
+                              <Typography.Text type="secondary">
+                                {t('Chart')} #{publishResult?.chart_id || report?.chart_id}
+                                {' · '}
+                              </Typography.Text>
+                            )}
+                            <Typography.Text type="secondary">
+                              {t('Dashboard')}{' '}
+                              #{publishResult?.dashboard_id || report?.dashboard_id}
+                              {publishResult?.dashboard_title
+                                ? ` · ${publishResult.dashboard_title}`
+                                : ''}
+                            </Typography.Text>
+                          </div>
+                        </div>
+                      )}
+                    </Space>
+                  )}
                 </Panel>
               </Collapse>
 

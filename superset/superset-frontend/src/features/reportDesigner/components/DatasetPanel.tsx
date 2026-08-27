@@ -16,10 +16,11 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { t } from '@apache-superset/core/translation';
 import { styled } from '@apache-superset/core/theme';
 import {
+  Button,
   Select,
   Tag,
   Tooltip,
@@ -48,6 +49,19 @@ const StyledPanel = styled.div`
   .dataset-select {
     width: 100%;
   }
+`;
+
+const StyledFilterRow = styled.div`
+  ${({ theme }) => `
+    display: flex;
+    align-items: center;
+    gap: ${theme.sizeUnit}px;
+
+    .db-filter {
+      flex: 1;
+      min-width: 0;
+    }
+  `}
 `;
 
 const StyledColumn = styled.div`
@@ -80,22 +94,43 @@ type Props = {
   datasets: DatasetOption[];
   selectedDatasetIds: number[];
   onSelectDataset: (id: number) => void;
+  /** Register all Moodle (read-only) tables as datasets. */
+  onSyncTables: () => void;
+  syncing: boolean;
 };
 
 export default function DatasetPanel({
   datasets,
   selectedDatasetIds,
   onSelectDataset,
+  onSyncTables,
+  syncing,
 }: Props) {
-  const options = useMemo(
-    () =>
-      datasets.map(ds => ({
-        label: `${ds.table_name} (${ds.database_name})`,
-        value: ds.id,
-      })),
+  const [databaseFilter, setDatabaseFilter] = useState<string | undefined>();
+
+  const databaseNames = useMemo(
+    () => Array.from(new Set(datasets.map(ds => ds.database_name))),
     [datasets],
   );
 
+  const filteredDatasets = useMemo(
+    () =>
+      databaseFilter
+        ? datasets.filter(ds => ds.database_name === databaseFilter)
+        : datasets,
+    [datasets, databaseFilter],
+  );
+
+  const options = useMemo(
+    () =>
+      filteredDatasets.map(ds => ({
+        label: `${ds.table_name} (${ds.database_name})`,
+        value: ds.id,
+      })),
+    [filteredDatasets],
+  );
+
+  // Selected datasets always stay visible, even when filtered out.
   const selectedDatasets = useMemo(
     () => datasets.filter(ds => selectedDatasetIds.includes(ds.id)),
     [datasets, selectedDatasetIds],
@@ -117,6 +152,29 @@ export default function DatasetPanel({
 
   return (
     <StyledPanel>
+      <StyledFilterRow>
+        <Select
+          className="db-filter"
+          placeholder={t('All databases')}
+          options={databaseNames.map(name => ({
+            label: name,
+            value: name,
+          }))}
+          allowClear
+          showSearch
+          value={databaseFilter ?? null}
+          onChange={value => setDatabaseFilter(value ?? undefined)}
+        />
+        <Tooltip title={t('Register all Moodle (read-only) tables as datasets')}>
+          <Button
+            icon={<Icons.ReloadOutlined />}
+            loading={syncing}
+            onClick={onSyncTables}
+          >
+            {t('Sync tables')}
+          </Button>
+        </Tooltip>
+      </StyledFilterRow>
       <Select
         className="dataset-select"
         placeholder={t('Select a dataset…')}

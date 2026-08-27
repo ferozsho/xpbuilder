@@ -131,6 +131,37 @@ export default function ReportListPage() {
         ),
       },
       {
+        title: t('Published'),
+        key: 'published',
+        width: 220,
+        render: (_: unknown, report: Report) => {
+          if (!report.chart_id) return '—';
+          return (
+            <Space wrap>
+              <Tag color="green">📊 {report.chart_name || t('Published')}</Tag>
+              {report.chart_id != null && (
+                <a
+                  href={`/explore/?slice_id=${report.chart_id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {t('Chart')} #{report.chart_id}
+                </a>
+              )}
+              {report.dashboard_id != null && (
+                <a
+                  href={`/superset/dashboard/${report.dashboard_id}/`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {t('Dashboard')} #{report.dashboard_id}
+                </a>
+              )}
+            </Space>
+          );
+        },
+      },
+      {
         title: t('Changed'),
         dataIndex: 'changed_on',
         key: 'changed_on',
