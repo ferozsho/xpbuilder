@@ -25,7 +25,7 @@ import { ChartConfig, ChartLayerOptions, ChartSizeValues } from '../types';
 import { createChartComponent } from '../util/chartUtil';
 import { getProjectedCoordinateFromPointGeoJson } from '../util/geometryUtil';
 
-import Loader from '../images/loading.gif';
+import Loader from '../images/loading.svg';
 
 /**
  * Custom OpenLayers layer that displays charts on given locations.

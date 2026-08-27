@@ -1,3 +1,36 @@
+diff --git a/superset-frontend/packages/superset-ui-core/src/components/assets/images/loading.gif b/superset-frontend/packages/superset-ui-core/src/components/assets/images/loading.gif
+index d82fc5d..90f6b94 100644
+Binary files a/superset-frontend/packages/superset-ui-core/src/components/assets/images/loading.gif and b/superset-frontend/packages/superset-ui-core/src/components/assets/images/loading.gif differ
+diff --git a/superset-frontend/packages/superset-ui-core/src/components/assets/images/loading.svg b/superset-frontend/packages/superset-ui-core/src/components/assets/images/loading.svg
+index e588d69..90f6b94 100644
+Binary files a/superset-frontend/packages/superset-ui-core/src/components/assets/images/loading.svg and b/superset-frontend/packages/superset-ui-core/src/components/assets/images/loading.svg differ
+diff --git a/superset-frontend/plugins/plugin-chart-cartodiagram/src/components/ChartLayer.tsx b/superset-frontend/plugins/plugin-chart-cartodiagram/src/components/ChartLayer.tsx
+index 88f7809..a2c15ba 100644
+--- a/superset-frontend/plugins/plugin-chart-cartodiagram/src/components/ChartLayer.tsx
++++ b/superset-frontend/plugins/plugin-chart-cartodiagram/src/components/ChartLayer.tsx
+@@ -25,7 +25,7 @@ import { ChartConfig, ChartLayerOptions, ChartSizeValues } from '../types';
+ import { createChartComponent } from '../util/chartUtil';
+ import { getProjectedCoordinateFromPointGeoJson } from '../util/geometryUtil';
+ 
+-import Loader from '../images/loading.gif';
++import Loader from '../images/loading.svg';
+ 
+ /**
+  * Custom OpenLayers layer that displays charts on given locations.
+diff --git a/superset-frontend/plugins/plugin-chart-cartodiagram/src/images/loading.gif b/superset-frontend/plugins/plugin-chart-cartodiagram/src/images/loading.gif
+index d82fc5d..90f6b94 100644
+Binary files a/superset-frontend/plugins/plugin-chart-cartodiagram/src/images/loading.gif and b/superset-frontend/plugins/plugin-chart-cartodiagram/src/images/loading.gif differ
+diff --git a/superset-frontend/plugins/plugin-chart-cartodiagram/src/images/loading.svg b/superset-frontend/plugins/plugin-chart-cartodiagram/src/images/loading.svg
+new file mode 100644
+index 0000000..90f6b94
+Binary files /dev/null and b/superset-frontend/plugins/plugin-chart-cartodiagram/src/images/loading.svg differ
+diff --git a/superset-frontend/src/assets/images/loading.gif b/superset-frontend/src/assets/images/loading.gif
+index d82fc5d..90f6b94 100644
+Binary files a/superset-frontend/src/assets/images/loading.gif and b/superset-frontend/src/assets/images/loading.gif differ
+diff --git a/superset-frontend/src/assets/images/loading.svg b/superset-frontend/src/assets/images/loading.svg
+new file mode 100644
+index 0000000..90f6b94
+Binary files /dev/null and b/superset-frontend/src/assets/images/loading.svg differ
 diff --git a/superset-frontend/src/features/reportDesigner/ReportDesignerPage.tsx b/superset-frontend/src/features/reportDesigner/ReportDesignerPage.tsx
 new file mode 100644
 index 0000000..27bb182
@@ -673,10 +706,10 @@ index 0000000..27bb182
 +}
 diff --git a/superset-frontend/src/features/reportDesigner/ReportListPage.tsx b/superset-frontend/src/features/reportDesigner/ReportListPage.tsx
 new file mode 100644
-index 0000000..7907322
+index 0000000..4ca963c
 --- /dev/null
 +++ b/superset-frontend/src/features/reportDesigner/ReportListPage.tsx
-@@ -0,0 +1,220 @@
+@@ -0,0 +1,217 @@
 +/**
 + * Licensed to the Apache Software Foundation (ASF) under one
 + * or more contributor license agreements.  See the NOTICE file
@@ -737,10 +770,8 @@ index 0000000..7907322
 +const StyledActions = styled.div`
 +  display: inline-flex;
 +  align-items: center;
-+  justify-content: flex-end;
 +  gap: ${({ theme }) => theme.gridUnit * 2}px;
 +  white-space: nowrap;
-+  width: 100%;
 +`;
 +
 +export default function ReportListPage() {
@@ -822,8 +853,7 @@ index 0000000..7907322
 +      {
 +        title: t('Actions'),
 +        key: 'actions',
-+        width: 280,
-+        align: 'right' as const,
++        width: 260,
 +        render: (_: unknown, report: Report) => (
 +          <StyledActions>
 +            <Button

@@ -58,10 +58,8 @@ const StyledWrapper = styled.div`
 const StyledActions = styled.div`
   display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
   gap: ${({ theme }) => theme.gridUnit * 2}px;
   white-space: nowrap;
-  width: 100%;
 `;
 
 export default function ReportListPage() {
@@ -143,8 +141,7 @@ export default function ReportListPage() {
       {
         title: t('Actions'),
         key: 'actions',
-        width: 280,
-        align: 'right' as const,
+        width: 260,
         render: (_: unknown, report: Report) => (
           <StyledActions>
             <Button
