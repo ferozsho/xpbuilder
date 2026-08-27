@@ -1,0 +1,3786 @@
+diff --git a/superset-frontend/src/features/reportDesigner/ReportDesignerPage.tsx b/superset-frontend/src/features/reportDesigner/ReportDesignerPage.tsx
+new file mode 100644
+index 0000000..27bb182
+--- /dev/null
++++ b/superset-frontend/src/features/reportDesigner/ReportDesignerPage.tsx
+@@ -0,0 +1,667 @@
++/**
++ * Licensed to the Apache Software Foundation (ASF) under one
++ * or more contributor license agreements.  See the NOTICE file
++ * distributed with this work for additional information
++ * regarding copyright ownership.  The ASF licenses this file
++ * to you under the Apache License, Version 2.0 (the
++ * "License"); you may not use this file except in compliance
++ * with the License.  You may obtain a copy of the License at
++ *
++ *   http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing,
++ * software distributed under the License is distributed on an
++ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++ * KIND, either express or implied.  See the License for the
++ * specific language governing permissions and limitations
++ * under the License.
++ */
++import { useCallback, useEffect, useMemo, useState } from 'react';
++import { useHistory, useParams } from 'react-router-dom';
++import { t } from '@apache-superset/core/translation';
++import { styled } from '@apache-superset/core/theme';
++import {
++  Button,
++  Collapse,
++  Input,
++  Modal,
++  Select,
++  Space,
++  Loading,
++  Tag,
++  Typography,
++  Upload,
++} from '@superset-ui/core/components';
++import { Icons } from '@superset-ui/core/components/Icons';
++import { useToasts } from 'src/components/MessageToasts/withToasts';
++import SubMenu from 'src/features/home/SubMenu';
++import {
++  createReport,
++  fetchDatabases,
++  fetchDatasets,
++  fetchReport,
++  previewReport,
++  updateReport,
++  exportPdfUrl,
++  exportReportUrl,
++  exportXlsxUrl,
++  uploadExcel,
++} from './api';
++import {
++  DatasetOption,
++  DatabaseOption,
++  EMPTY_DEFINITION,
++  FieldRef,
++  MetricRef,
++  PreviewResult,
++  ReportDefinition,
++} from './types';
++import DatasetPanel from './components/DatasetPanel';
++import FieldsPanel from './components/FieldsPanel';
++import FiltersPanel from './components/FiltersPanel';
++import RelationshipsPanel from './components/RelationshipsPanel';
++import PreviewPanel from './components/PreviewPanel';
++
++const { Panel } = Collapse;
++
++const StyledLayout = styled.div`
++  ${({ theme }) => `
++    display: grid;
++    /* minmax(0, 1fr) lets the report canvas column shrink below its content
++       width, so wide preview tables scroll inside the pane instead of
++       stretching the page. */
++    grid-template-columns: 340px minmax(0, 1fr);
++    gap: ${theme.sizeUnit * 4}px;
++    padding: ${theme.sizeUnit * 4}px;
++    align-items: start;
++  `}
++`;
++
++const StyledCanvas = styled.div`
++  min-width: 0;
++  overflow: hidden;
++`;
++
++const StyledLeft = styled.div`
++  position: sticky;
++  top: ${({ theme }) => theme.sizeUnit * 4}px;
++  max-height: calc(100vh - 160px);
++  overflow: auto;
++`;
++
++const StyledToolbar = styled.div`
++  ${({ theme }) => `
++    display: flex;
++    align-items: center;
++    gap: ${theme.sizeUnit * 2}px;
++    margin-bottom: ${theme.sizeUnit * 3}px;
++    flex-wrap: wrap;
++  `}
++`;
++
++const StyledMeta = styled.div`
++  ${({ theme }) => `
++    display: flex;
++    align-items: center;
++    gap: ${theme.sizeUnit * 2}px;
++    flex: 1;
++    min-width: 320px;
++  `}
++`;
++
++export default function ReportDesignerPage() {
++  const history = useHistory();
++  const { reportId } = useParams<{ reportId?: string }>();
++  const { addDangerToast, addSuccessToast } = useToasts();
++
++  const [datasets, setDatasets] = useState<DatasetOption[]>([]);
++  const [datasetsLoaded, setDatasetsLoaded] = useState(false);
++  const [loadingReport, setLoadingReport] = useState(Boolean(reportId));
++
++  const [name, setName] = useState('');
++  const [description, setDescription] = useState('');
++  const [definition, setDefinition] =
++    useState<ReportDefinition>(EMPTY_DEFINITION);
++
++  const [saving, setSaving] = useState(false);
++  const [previewLoading, setPreviewLoading] = useState(false);
++  const [previewResult, setPreviewResult] = useState<PreviewResult | null>(null);
++  const [previewError, setPreviewError] = useState<string | null>(null);
++
++  // ---- Data Modeler (Excel upload) -------------------------------------
++  const [uploadOpen, setUploadOpen] = useState(false);
++  const [uploadDatabase, setUploadDatabase] = useState<number | undefined>();
++  const [uploadFile, setUploadFile] = useState<File | null>(null);
++  const [uploading, setUploading] = useState(false);
++  const [databases, setDatabases] = useState<DatabaseOption[]>([]);
++
++  // ---- load datasets -------------------------------------------------
++  useEffect(() => {
++    fetchDatasets()
++      .then(list => setDatasets(list))
++      .catch(() => addDangerToast(t('Failed to load datasets')))
++      .finally(() => setDatasetsLoaded(true));
++  }, [addDangerToast]);
++
++  // ---- load report definition ----------------------------------------
++  useEffect(() => {
++    if (!reportId) {
++      setLoadingReport(false);
++      return;
++    }
++    setLoadingReport(true);
++    fetchReport(Number(reportId))
++      .then(report => {
++        setName(report.name);
++        setDescription(report.description);
++        setDefinition({
++          ...EMPTY_DEFINITION,
++          ...report.definition,
++        });
++      })
++      .catch(() => addDangerToast(t('Failed to load report')))
++      .finally(() => setLoadingReport(false));
++  }, [reportId, addDangerToast]);
++
++  // ---- definition helpers ----------------------------------------------
++  const updateDefinition = useCallback((patch: Partial<ReportDefinition>) => {
++    setDefinition(prev => ({ ...prev, ...patch }));
++  }, []);
++
++  const handleSelectDataset = useCallback(
++    (id: number) => {
++      const current = definition.datasets;
++      if (current.some(ds => ds.id === id)) return;
++      const alias = `d${current.length + 1}`;
++      updateDefinition({ datasets: [...current, { id, alias }] });
++    },
++    [definition.datasets, updateDefinition],
++  );
++
++  const handleAddColumn = useCallback(
++    (field: FieldRef) => {
++      const exists = definition.columns.some(
++        item => item.dataset === field.dataset && item.column === field.column,
++      );
++      if (exists) return;
++      updateDefinition({ columns: [...definition.columns, field] });
++    },
++    [definition.columns, updateDefinition],
++  );
++
++  const handleAddGroup = useCallback(
++    (field: FieldRef) => {
++      const exists = definition.group_by.some(
++        item => item.dataset === field.dataset && item.column === field.column,
++      );
++      if (exists) return;
++      updateDefinition({ group_by: [...definition.group_by, field] });
++    },
++    [definition.group_by, updateDefinition],
++  );
++
++  const handleAddMetric = useCallback(
++    (metric: MetricRef) => {
++      const exists = definition.metrics.some(
++        item =>
++          item.dataset === metric.dataset &&
++          item.column === metric.column &&
++          item.aggregate === metric.aggregate,
++      );
++      if (exists) return;
++      updateDefinition({ metrics: [...definition.metrics, metric] });
++    },
++    [definition.metrics, updateDefinition],
++  );
++
++  // ---- order by ---------------------------------------------------------
++  const orderByOptions = useMemo(() => {
++    const items: Array<{ label: string; value: string }> = [];
++    definition.columns.forEach(field => {
++      items.push({
++        label: `${field.label} (${field.column})`,
++        value: `${field.dataset}:${field.column}`,
++      });
++    });
++    definition.metrics.forEach(metric => {
++      items.push({
++        label: `${metric.label}`,
++        value: `${metric.dataset}:${metric.column}:${metric.aggregate}:${metric.label}`,
++      });
++    });
++    return items;
++  }, [definition.columns, definition.metrics]);
++
++  const handleAddOrder = (value: string) => {
++    const [dataset, column, , ...rest] = value.split(':');
++    const label = rest.length > 0 ? rest.join(':') : undefined;
++    const entry = {
++      dataset: Number(dataset),
++      column,
++      desc: false,
++      ...(label ? { label } : {}),
++    };
++    const exists = definition.order_by.some(
++      item =>
++        item.dataset === entry.dataset && item.column === entry.column,
++    );
++    if (exists) return;
++    updateDefinition({ order_by: [...definition.order_by, entry] });
++  };
++
++  // ---- save / preview ----------------------------------------------------
++  const handleSave = () => {
++    setSaving(true);
++    const definitionJson: ReportDefinition = {
++      ...definition,
++      datasets: definition.datasets.map((ds, index) => ({
++        ...ds,
++        alias: ds.alias || `d${index + 1}`,
++      })),
++    };
++    const action = reportId
++      ? updateReport(Number(reportId), name, description, definitionJson)
++      : createReport(name, description, definitionJson);
++    action
++      .then(saved => {
++        addSuccessToast(t('Report saved'));
++        if (!reportId) {
++          history.replace(`/reportdesigner/designer/${saved.id}/`);
++        }
++      })
++      .catch(() => addDangerToast(t('Failed to save report')))
++      .finally(() => setSaving(false));
++  };
++
++  const handlePreview = () => {
++    setPreviewLoading(true);
++    setPreviewError(null);
++    previewReport(definition)
++      .then(result => setPreviewResult(result))
++      .catch(err => {
++        const message =
++          (err as { message?: string })?.message || t('Preview failed');
++        setPreviewError(message);
++        setPreviewResult(null);
++      })
++      .finally(() => setPreviewLoading(false));
++  };
++
++  // ---- Data Modeler handlers ---------------------------------------------
++  const openUpload = () => {
++    fetchDatabases()
++      .then(list => setDatabases(list))
++      .catch(() => addDangerToast(t('Failed to load databases')));
++    setUploadDatabase(undefined);
++    setUploadFile(null);
++    setUploadOpen(true);
++  };
++
++  const handleUpload = () => {
++    if (uploadDatabase === undefined || !uploadFile) return;
++    setUploading(true);
++    uploadExcel(uploadDatabase, uploadFile)
++      .then(result => {
++        addSuccessToast(
++          `Uploaded ${result.rows} rows as ${result.table_name}`,
++        );
++        setUploadOpen(false);
++        // Refresh datasets so the new table is available in the picker.
++        fetchDatasets()
++          .then(list => {
++            setDatasets(list);
++            handleSelectDataset(result.dataset_id);
++          })
++          .catch(() => addDangerToast(t('Failed to refresh datasets')));
++      })
++      .catch(err => {
++        const message =
++          (err as { message?: string })?.message || t('Upload failed');
++        addDangerToast(message);
++      })
++      .finally(() => setUploading(false));
++  };
++
++  if (loadingReport) {
++    return (
++      <div style={{ textAlign: 'center', padding: 80 }}>
++        <Loading position="floating" />
++      </div>
++    );
++  }
++
++  return (
++    <>
++      <SubMenu
++        name={t('Report Designer')}
++        buttons={[
++          {
++            name: t('Back to reports'),
++            onClick: () => history.push('/reportdesigner/list/'),
++            buttonStyle: 'link',
++          },
++          {
++            name: t('Run preview'),
++            onClick: handlePreview,
++            buttonStyle: 'secondary',
++            loading: previewLoading,
++            icon: <Icons.PlayCircleOutlined />,
++          },
++          {
++            name: t('Save'),
++            onClick: handleSave,
++            buttonStyle: 'primary',
++            loading: saving,
++            icon: <Icons.SaveOutlined />,
++          },
++        ]}
++      />
++      <StyledLayout>
++        <StyledLeft>
++          <DatasetPanel
++            datasets={datasets}
++            selectedDatasetIds={definition.datasets.map(ds => ds.id)}
++            onSelectDataset={handleSelectDataset}
++          />
++        </StyledLeft>
++
++        <StyledCanvas>
++          <StyledToolbar>
++            <StyledMeta>
++              <Input
++                placeholder={t('Report name')}
++                value={name}
++                onChange={event => setName(event.target.value)}
++                style={{ maxWidth: 360 }}
++              />
++              <Input
++                placeholder={t('Description (optional)')}
++                value={description}
++                onChange={event => setDescription(event.target.value)}
++                style={{ maxWidth: 360 }}
++              />
++            </StyledMeta>
++            <Space wrap>
++              <Typography.Text>{t('Limit')}</Typography.Text>
++              <Select
++                value={definition.limit}
++                style={{ width: 100 }}
++                options={[100, 500, 1000, 5000, 10000].map(value => ({
++                  label: String(value),
++                  value,
++                }))}
++                onChange={(value: number) =>
++                  updateDefinition({ limit: value })
++                }
++              />
++              {reportId && (
++                <>
++                  <Button
++                    icon={<Icons.DownloadOutlined />}
++                    href={exportReportUrl(Number(reportId))}
++                    target="_blank"
++                    rel="noreferrer"
++                  >
++                    {t('CSV')}
++                  </Button>
++                  <Button
++                    icon={<Icons.FileOutlined />}
++                    href={exportXlsxUrl(Number(reportId))}
++                    target="_blank"
++                    rel="noreferrer"
++                  >
++                    {t('Excel')}
++                  </Button>
++                  <Button
++                    icon={<Icons.ProfileOutlined />}
++                    href={exportPdfUrl(Number(reportId))}
++                    target="_blank"
++                    rel="noreferrer"
++                  >
++                    {t('PDF')}
++                  </Button>
++                </>
++              )}
++              <Button
++                icon={<Icons.UploadOutlined />}
++                onClick={openUpload}
++              >
++                {t('Upload Excel')}
++              </Button>
++            </Space>
++          </StyledToolbar>
++
++          {!datasetsLoaded ? (
++            <Loading position="floating" />
++          ) : (
++            <>
++              {definition.datasets.length === 0 && (
++                <Tag color="orange" style={{ marginBottom: 12 }}>
++                  {t('Add at least one dataset from the left panel to start.')}
++                </Tag>
++              )}
++
++              <Collapse
++                defaultActiveKey={['relationships', 'fields', 'filters']}
++                bordered
++              >
++                <Panel
++                  key="datasets"
++                  header={
++                    <Space size={4}>
++                      <Icons.DatabaseOutlined />
++                      {t('Datasets')}
++                      <Tag>{definition.datasets.length}</Tag>
++                    </Space>
++                  }
++                >
++                  <Space wrap>
++                    {definition.datasets.map(ds => {
++                      const meta = datasets.find(item => item.id === ds.id);
++                      return (
++                        <Tag
++                          key={ds.id}
++                          color="blue"
++                          closable
++                          onClose={() =>
++                            updateDefinition({
++                              datasets: definition.datasets.filter(
++                                item => item.id !== ds.id,
++                              ),
++                            })
++                          }
++                        >
++                          {meta?.table_name ?? `#${ds.id}`} ({ds.alias})
++                        </Tag>
++                      );
++                    })}
++                  </Space>
++                </Panel>
++
++                <Panel
++                  key="relationships"
++                  header={
++                    <Space size={4}>
++                      <Icons.LinkOutlined />
++                      {t('Relationships')}
++                      <Tag>{definition.relationships.length}</Tag>
++                    </Space>
++                  }
++                >
++                  <RelationshipsPanel
++                    datasets={datasets.filter(ds =>
++                      definition.datasets.some(item => item.id === ds.id),
++                    )}
++                    relationships={definition.relationships}
++                    onChange={relationships =>
++                      updateDefinition({ relationships })
++                    }
++                  />
++                </Panel>
++
++                <Panel
++                  key="fields"
++                  header={
++                    <Space size={4}>
++                      <Icons.Sigma />
++                      {t('Fields')}
++                      <Tag>{definition.columns.length}</Tag>
++                    </Space>
++                  }
++                >
++                  <FieldsPanel
++                    datasets={datasets}
++                    columns={definition.columns}
++                    groupBy={definition.group_by}
++                    metrics={definition.metrics}
++                    onAddColumn={handleAddColumn}
++                    onRemoveColumn={index =>
++                      updateDefinition({
++                        columns: definition.columns.filter(
++                          (_, i) => i !== index,
++                        ),
++                      })
++                    }
++                    onUpdateColumnLabel={(index, label) =>
++                      updateDefinition({
++                        columns: definition.columns.map((field, i) =>
++                          i === index ? { ...field, label } : field,
++                        ),
++                      })
++                    }
++                    onAddGroup={handleAddGroup}
++                    onRemoveGroup={index =>
++                      updateDefinition({
++                        group_by: definition.group_by.filter(
++                          (_, i) => i !== index,
++                        ),
++                      })
++                    }
++                    onAddMetric={handleAddMetric}
++                    onRemoveMetric={index =>
++                      updateDefinition({
++                        metrics: definition.metrics.filter(
++                          (_, i) => i !== index,
++                        ),
++                      })
++                    }
++                    onUpdateMetric={(index, metric) =>
++                      updateDefinition({
++                        metrics: definition.metrics.map((item, i) =>
++                          i === index ? metric : item,
++                        ),
++                      })
++                    }
++                  />
++
++                  <div style={{ marginTop: 16 }}>
++                    <Space align="center">
++                      <Typography.Text strong>
++                        {t('Order by')}
++                      </Typography.Text>
++                      <Select
++                        placeholder={t('Add ordering…')}
++                        style={{ width: 260 }}
++                        showSearch
++                        options={orderByOptions}
++                        onChange={handleAddOrder}
++                      />
++                    </Space>
++                    <Space wrap style={{ marginTop: 8 }}>
++                      {definition.order_by.map((entry, index) => (
++                        <Tag
++                          key={`${entry.dataset}-${entry.column}-${index}`}
++                          color="cyan"
++                          closable
++                          onClose={() =>
++                            updateDefinition({
++                              order_by: definition.order_by.filter(
++                                (_, i) => i !== index,
++                              ),
++                            })
++                          }
++                        >
++                          {entry.column}{' '}
++                          {entry.desc ? t('desc') : t('asc')}
++                        </Tag>
++                      ))}
++                    </Space>
++                  </div>
++                </Panel>
++
++                <Panel
++                  key="filters"
++                  header={
++                    <Space size={4}>
++                      <Icons.FilterOutlined />
++                      {t('Filters')}
++                      <Tag>{definition.filters.length}</Tag>
++                    </Space>
++                  }
++                >
++                  <FiltersPanel
++                    datasets={datasets.filter(ds =>
++                      definition.datasets.some(item => item.id === ds.id),
++                    )}
++                    filters={definition.filters}
++                    onChange={filters => updateDefinition({ filters })}
++                  />
++                </Panel>
++              </Collapse>
++
++              <PreviewPanel
++                result={previewResult}
++                loading={previewLoading}
++                error={previewError}
++                onRefresh={handlePreview}
++              />
++            </>
++          )}
++        </StyledCanvas>
++      </StyledLayout>
++
++      <Modal
++        open={uploadOpen}
++        title={t('Upload Excel / CSV as a dataset')}
++        onCancel={() => setUploadOpen(false)}
++        onOk={handleUpload}
++        okText={t('Upload')}
++        confirmLoading={uploading}
++        okButtonProps={{ disabled: uploadDatabase === undefined || !uploadFile }}
++      >
++        <Space direction="vertical" style={{ width: '100%' }}>
++          <div>
++            <Typography.Text strong>{t('Target database')}</Typography.Text>
++            <Select
++              placeholder={t('Select a writable database…')}
++              options={databases.map(db => ({
++                label: db.database_name,
++                value: db.id,
++              }))}
++              value={uploadDatabase ?? null}
++              style={{ width: '100%', marginTop: 4 }}
++              onChange={setUploadDatabase}
++            />
++            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
++              {t('Note: the read replica is read-only — pick a writable '
++                + 'connection so the staging table can be created.')}
++            </Typography.Text>
++          </div>
++          <Upload
++            beforeUpload={file => {
++              setUploadFile(file);
++              return false;
++            }}
++            onRemove={() => setUploadFile(null)}
++            maxCount={1}
++            accept=".xlsx,.xls,.csv"
++          >
++            <Button icon={<Icons.UploadOutlined />}>
++              {t('Choose file')}
++            </Button>
++          </Upload>
++        </Space>
++      </Modal>
++    </>
++  );
++}
+diff --git a/superset-frontend/src/features/reportDesigner/ReportListPage.tsx b/superset-frontend/src/features/reportDesigner/ReportListPage.tsx
+new file mode 100644
+index 0000000..7907322
+--- /dev/null
++++ b/superset-frontend/src/features/reportDesigner/ReportListPage.tsx
+@@ -0,0 +1,220 @@
++/**
++ * Licensed to the Apache Software Foundation (ASF) under one
++ * or more contributor license agreements.  See the NOTICE file
++ * distributed with this work for additional information
++ * regarding copyright ownership.  The ASF licenses this file
++ * to you under the Apache License, Version 2.0 (the
++ * "License"); you may not use this file except in compliance
++ * with the License.  You may obtain a copy of the License at
++ *
++ *   http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing,
++ * software distributed under the License is distributed on an
++ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++ * KIND, either express or implied.  See the License for the
++ * specific language governing permissions and limitations
++ * under the License.
++ */
++import { useCallback, useEffect, useMemo, useState } from 'react';
++import { useHistory } from 'react-router-dom';
++import { t } from '@apache-superset/core/translation';
++import { styled } from '@apache-superset/core/theme';
++import { Button, Table, Tag, Popconfirm, Space } from '@superset-ui/core/components';
++import { Icons } from '@superset-ui/core/components/Icons';
++import { useToasts } from 'src/components/MessageToasts/withToasts';
++import SubMenu from 'src/features/home/SubMenu';
++import {
++  deleteReport,
++  fetchReports,
++  exportPdfUrl,
++  exportReportUrl,
++  exportXlsxUrl,
++} from './api';
++import { Report } from './types';
++
++const StyledWrapper = styled.div`
++  width: 100%;
++  padding: ${({ theme }) => theme.gridUnit * 6}px;
++  max-width: 1400px;
++  margin: 0 auto;
++
++  .ant-table-wrapper {
++    background: ${({ theme }) => theme.colors.grayscale.light5};
++    border-radius: ${({ theme }) => theme.borderRadius}px;
++    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
++  }
++
++  .ant-table-thead > tr > th {
++    font-weight: ${({ theme }) => theme.typography.weights.bold};
++    background: ${({ theme }) => theme.colors.grayscale.light4};
++  }
++
++  .ant-table-tbody > tr > td {
++    vertical-align: middle;
++  }
++`;
++
++const StyledActions = styled.div`
++  display: inline-flex;
++  align-items: center;
++  justify-content: flex-end;
++  gap: ${({ theme }) => theme.gridUnit * 2}px;
++  white-space: nowrap;
++  width: 100%;
++`;
++
++export default function ReportListPage() {
++  const history = useHistory();
++  const { addDangerToast, addSuccessToast } = useToasts();
++  const [reports, setReports] = useState<Report[]>([]);
++  const [loading, setLoading] = useState(true);
++
++  const loadReports = useCallback(() => {
++    setLoading(true);
++    fetchReports()
++      .then(list => setReports(list))
++      .catch(() => addDangerToast(t('Failed to load reports')))
++      .finally(() => setLoading(false));
++  }, [addDangerToast]);
++
++  useEffect(() => {
++    loadReports();
++  }, [loadReports]);
++
++  const handleDelete = (report: Report) => {
++    deleteReport(report.id)
++      .then(() => {
++        addSuccessToast(t('Report deleted'));
++        loadReports();
++      })
++      .catch(() => addDangerToast(t('Failed to delete report')));
++  };
++
++  const columns = useMemo(
++    () => [
++      {
++        title: t('Name'),
++        dataIndex: 'name',
++        key: 'name',
++        width: 250,
++        ellipsis: true,
++        render: (name: string, report: Report) => (
++          <a
++            href={`/reportdesigner/designer/${report.id}/`}
++            onClick={ev => {
++              ev.preventDefault();
++              history.push(`/reportdesigner/designer/${report.id}/`);
++            }}
++          >
++            {name}
++          </a>
++        ),
++      },
++      {
++        title: t('Description'),
++        dataIndex: 'description',
++        key: 'description',
++        ellipsis: true,
++        render: (description: string) => description || '—',
++      },
++      {
++        title: t('Datasets'),
++        key: 'datasets',
++        width: 200,
++        render: (_: unknown, report: Report) => (
++          <Space wrap>
++            {report.definition.datasets.map(ds => (
++              <Tag key={ds.id} color="blue">
++                {ds.alias || `d${ds.id}`}
++              </Tag>
++            ))}
++          </Space>
++        ),
++      },
++      {
++        title: t('Changed'),
++        dataIndex: 'changed_on',
++        key: 'changed_on',
++        width: 180,
++        render: (value?: string | null) =>
++          value ? new Date(value).toLocaleString() : '—',
++      },
++      {
++        title: t('Actions'),
++        key: 'actions',
++        width: 280,
++        align: 'right' as const,
++        render: (_: unknown, report: Report) => (
++          <StyledActions>
++            <Button
++              type="primary"
++              ghost
++              icon={<Icons.EditOutlined />}
++              onClick={() =>
++                history.push(`/reportdesigner/designer/${report.id}/`)
++              }
++            >
++              {t('Open')}
++            </Button>
++            <Button
++              icon={<Icons.DownloadOutlined />}
++              href={exportReportUrl(report.id)}
++              target="_blank"
++              rel="noreferrer"
++              title={t('Export CSV')}
++            />
++            <Button
++              icon={<Icons.FileOutlined />}
++              href={exportXlsxUrl(report.id)}
++              target="_blank"
++              rel="noreferrer"
++              title={t('Export Excel')}
++            />
++            <Button
++              icon={<Icons.ProfileOutlined />}
++              href={exportPdfUrl(report.id)}
++              target="_blank"
++              rel="noreferrer"
++              title={t('Export PDF')}
++            />
++            <Popconfirm
++              title={t('Delete this report?')}
++              onConfirm={() => handleDelete(report)}
++            >
++              <Button danger icon={<Icons.DeleteOutlined />} title={t('Delete')} />
++            </Popconfirm>
++          </StyledActions>
++        ),
++      },
++    ],
++    [history, addDangerToast],
++  );
++
++  return (
++    <>
++      <SubMenu
++        name={t('Report Designer')}
++        buttons={[
++          {
++            name: t('Create report'),
++            onClick: () => history.push('/reportdesigner/designer/'),
++            buttonStyle: 'primary',
++            icon: <Icons.PlusOutlined />,
++          },
++        ]}
++      />
++      <StyledWrapper>
++        <Table<Report>
++          rowKey="id"
++          dataSource={reports}
++          columns={columns}
++          loading={loading}
++          scroll={{ x: 'max-content' }}
++          pagination={{ pageSize: 20 }}
++        />
++      </StyledWrapper>
++    </>
++  );
++}
++
+diff --git a/superset-frontend/src/features/reportDesigner/api.ts b/superset-frontend/src/features/reportDesigner/api.ts
+new file mode 100644
+index 0000000..ece48fb
+--- /dev/null
++++ b/superset-frontend/src/features/reportDesigner/api.ts
+@@ -0,0 +1,129 @@
++/**
++ * Licensed to the Apache Software Foundation (ASF) under one
++ * or more contributor license agreements.  See the NOTICE file
++ * distributed with this work for additional information
++ * regarding copyright ownership.  The ASF licenses this file
++ * to you under the Apache License, Version 2.0 (the
++ * "License"); you may not use this file except in compliance
++ * with the License.  You may obtain a copy of the License at
++ *
++ *   http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing,
++ * software distributed under the License is distributed on an
++ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++ * KIND, either express or implied.  See the License for the
++ * specific language governing permissions and limitations
++ * under the License.
++ */
++import { SupersetClient } from '@superset-ui/core';
++import {
++  DatasetOption,
++  PreviewResult,
++  Report,
++  ReportDefinition,
++} from './types';
++
++const BASE = '/reportdesigner/api';
++
++export async function fetchDatasets(): Promise<DatasetOption[]> {
++  const { json } = await SupersetClient.get({ endpoint: `${BASE}/datasets/` });
++  return json.result ?? [];
++}
++
++export async function fetchReports(): Promise<Report[]> {
++  const { json } = await SupersetClient.get({ endpoint: `${BASE}/` });
++  return json.result ?? [];
++}
++
++export async function fetchReport(id: number): Promise<Report> {
++  const { json } = await SupersetClient.get({ endpoint: `${BASE}/${id}/` });
++  return json;
++}
++
++export async function createReport(
++  name: string,
++  description: string,
++  definition: ReportDefinition,
++): Promise<Report> {
++  const { json } = await SupersetClient.post({
++    endpoint: `${BASE}/`,
++    jsonPayload: { name, description, definition },
++  });
++  return json;
++}
++
++export async function updateReport(
++  id: number,
++  name: string,
++  description: string,
++  definition: ReportDefinition,
++): Promise<Report> {
++  const { json } = await SupersetClient.put({
++    endpoint: `${BASE}/${id}/`,
++    jsonPayload: { name, description, definition },
++  });
++  return json;
++}
++
++export async function deleteReport(id: number): Promise<void> {
++  await SupersetClient.delete({ endpoint: `${BASE}/${id}/` });
++}
++
++export async function previewReport(
++  definition: ReportDefinition,
++): Promise<PreviewResult> {
++  const { json } = await SupersetClient.post({
++    endpoint: `${BASE}/preview/`,
++    jsonPayload: { definition },
++  });
++  return json;
++}
++
++export function exportReportUrl(id: number): string {
++  return `${BASE}/${id}/export.csv/`;
++}
++
++export function exportXlsxUrl(id: number): string {
++  return `${BASE}/${id}/export.xlsx/`;
++}
++
++export function exportPdfUrl(id: number): string {
++  return `${BASE}/${id}/export.pdf/`;
++}
++
++export type UploadResult = {
++  dataset_id: number;
++  table_name: string;
++  rows: number;
++  columns: string[];
++};
++
++export type DatabaseOption = {
++  id: number;
++  database_name: string;
++};
++
++export async function fetchDatabases(): Promise<DatabaseOption[]> {
++  const { json } = await SupersetClient.get({
++    endpoint: '/api/v1/database/?q=(columns:!(id,database_name))',
++  });
++  return json.result ?? [];
++}
++
++/** Upload an Excel/CSV file and stage it as a dataset (Data Modeler). */
++export async function uploadExcel(
++  databaseId: number,
++  file: File,
++  tableName?: string,
++): Promise<UploadResult> {
++  const formData = new FormData();
++  formData.append('database_id', String(databaseId));
++  formData.append('file', file);
++  if (tableName) formData.append('table_name', tableName);
++  const { json } = await SupersetClient.post({
++    endpoint: `${BASE}/upload/`,
++    postPayload: formData,
++  });
++  return json;
++}
+diff --git a/superset-frontend/src/features/reportDesigner/components/DatasetPanel.tsx b/superset-frontend/src/features/reportDesigner/components/DatasetPanel.tsx
+new file mode 100644
+index 0000000..eeba739
+--- /dev/null
++++ b/superset-frontend/src/features/reportDesigner/components/DatasetPanel.tsx
+@@ -0,0 +1,184 @@
++/**
++ * Licensed to the Apache Software Foundation (ASF) under one
++ * or more contributor license agreements.  See the NOTICE file
++ * distributed with this work for additional information
++ * regarding copyright ownership.  The ASF licenses this file
++ * to you under the Apache License, Version 2.0 (the
++ * "License"); you may not use this file except in compliance
++ * with the License.  You may obtain a copy of the License at
++ *
++ *   http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing,
++ * software distributed under the License is distributed on an
++ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++ * KIND, either express or implied.  See the License for the
++ * specific language governing permissions and limitations
++ * under the License.
++ */
++import { useMemo } from 'react';
++import { t } from '@apache-superset/core/translation';
++import { styled } from '@apache-superset/core/theme';
++import {
++  Select,
++  Tag,
++  Tooltip,
++  Collapse,
++  Empty,
++  Space,
++  Typography,
++} from '@superset-ui/core/components';
++import { Icons } from '@superset-ui/core/components/Icons';
++import { DatasetOption } from '../types';
++
++export type DragPayload = {
++  dataset: number;
++  column: string;
++  label: string;
++};
++
++const { Panel } = Collapse;
++
++const StyledPanel = styled.div`
++  height: 100%;
++  display: flex;
++  flex-direction: column;
++  gap: ${({ theme }) => theme.sizeUnit * 2}px;
++
++  .dataset-select {
++    width: 100%;
++  }
++`;
++
++const StyledColumn = styled.div`
++  ${({ theme }) => `
++    display: flex;
++    align-items: center;
++    gap: ${theme.sizeUnit}px;
++    padding: ${theme.sizeUnit}px ${theme.sizeUnit * 2}px;
++    border: 1px solid ${theme.colorBorder};
++    border-radius: ${theme.borderRadius}px;
++    background: ${theme.colorFillAlter};
++    cursor: grab;
++    margin-bottom: ${theme.sizeUnit}px;
++
++    &:hover {
++      border-color: ${theme.colorPrimary};
++    }
++  `}
++`;
++
++const StyledHint = styled.div`
++  ${({ theme }) => `
++    color: ${theme.colorTextDescription};
++    font-size: ${theme.fontSizeSM}px;
++    margin-top: ${theme.sizeUnit}px;
++  `}
++`;
++
++type Props = {
++  datasets: DatasetOption[];
++  selectedDatasetIds: number[];
++  onSelectDataset: (id: number) => void;
++};
++
++export default function DatasetPanel({
++  datasets,
++  selectedDatasetIds,
++  onSelectDataset,
++}: Props) {
++  const options = useMemo(
++    () =>
++      datasets.map(ds => ({
++        label: `${ds.table_name} (${ds.database_name})`,
++        value: ds.id,
++      })),
++    [datasets],
++  );
++
++  const selectedDatasets = useMemo(
++    () => datasets.filter(ds => selectedDatasetIds.includes(ds.id)),
++    [datasets, selectedDatasetIds],
++  );
++
++  const handleDragStart = (
++    event: React.DragEvent<HTMLDivElement>,
++    dataset: number,
++    column: string,
++  ) => {
++    const payload: DragPayload = {
++      dataset,
++      column,
++      label: column,
++    };
++    event.dataTransfer.setData('application/x-report-field', JSON.stringify(payload));
++    event.dataTransfer.effectAllowed = 'copy';
++  };
++
++  return (
++    <StyledPanel>
++      <Select
++        className="dataset-select"
++        placeholder={t('Select a dataset…')}
++        options={options}
++        showSearch
++        value={null}
++        onChange={(id: number) => onSelectDataset(id)}
++      />
++      <StyledHint>
++        {t('Drag a column onto a band in the report canvas to add it.')}
++      </StyledHint>
++      {selectedDatasets.length === 0 ? (
++        <Empty
++          image={Empty.PRESENTED_IMAGE_SIMPLE}
++          description={t('No datasets added yet')}
++        />
++      ) : (
++        <Collapse
++          defaultActiveKey={selectedDatasets.map(ds => String(ds.id))}
++          bordered
++          style={{ overflow: 'auto' }}
++        >
++          {selectedDatasets.map(ds => (
++            <Panel
++              key={ds.id}
++              header={
++                <Space size={4}>
++                  <Tooltip title={ds.database_name}>
++                    <Icons.DatabaseOutlined />
++                  </Tooltip>
++                  <Typography.Text strong>{ds.table_name}</Typography.Text>
++                  <Tag>{ds.schema || ds.catalog || 'public'}</Tag>
++                </Space>
++              }
++            >
++              {ds.columns.map(col => (
++                <Tooltip
++                  key={col.column_name}
++                  title={
++                    col.expression
++                      ? `${t('Expression')}: ${col.expression}`
++                      : `${col.type || t('unknown type')}`
++                  }
++                >
++                  <StyledColumn
++                    draggable
++                    onDragStart={event =>
++                      handleDragStart(event, ds.id, col.column_name)
++                    }
++                  >
++                    <Icons.Drag />
++                    <Typography.Text>{col.column_name}</Typography.Text>
++                    <Tag color={col.is_dttm ? 'orange' : 'default'}>
++                      {col.is_dttm ? 'dttm' : col.type || '?'}
++                    </Tag>
++                  </StyledColumn>
++                </Tooltip>
++              ))}
++            </Panel>
++          ))}
++        </Collapse>
++      )}
++    </StyledPanel>
++  );
++}
+diff --git a/superset-frontend/src/features/reportDesigner/components/FieldsPanel.tsx b/superset-frontend/src/features/reportDesigner/components/FieldsPanel.tsx
+new file mode 100644
+index 0000000..aefa4d6
+--- /dev/null
++++ b/superset-frontend/src/features/reportDesigner/components/FieldsPanel.tsx
+@@ -0,0 +1,267 @@
++/**
++ * Licensed to the Apache Software Foundation (ASF) under one
++ * or more contributor license agreements.  See the NOTICE file
++ * distributed with this work for additional information
++ * regarding copyright ownership.  The ASF licenses this file
++ * to you under the Apache License, Version 2.0 (the
++ * "License"); you may not use this file except in compliance
++ * with the License.  You may obtain a copy of the License at
++ *
++ *   http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing,
++ * software distributed under the License is distributed on an
++ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++ * KIND, either express or implied.  See the License for the
++ * specific language governing permissions and limitations
++ * under the License.
++ */
++import { t } from '@apache-superset/core/translation';
++import { styled } from '@apache-superset/core/theme';
++import {
++  Button,
++  Input,
++  Select,
++  Space,
++  Tag,
++  Tooltip,
++  Typography,
++} from '@superset-ui/core/components';
++import { Icons } from '@superset-ui/core/components/Icons';
++import {
++  AGGREGATES,
++  DatasetOption,
++  FieldRef,
++  MetricRef,
++} from '../types';
++import { DragPayload } from './DatasetPanel';
++
++const StyledBand = styled.div<{ highlighted?: boolean }>`
++  ${({ theme, highlighted }) => `
++    border: 1px dashed
++      ${highlighted ? theme.colorPrimary : theme.colorBorder};
++    border-radius: ${theme.borderRadius}px;
++    padding: ${theme.sizeUnit * 2}px;
++    min-height: 56px;
++    background: ${highlighted ? theme.colorPrimaryBg : 'transparent'};
++    transition: background 0.15s ease;
++  `}
++`;
++
++const StyledBandTitle = styled.div`
++  ${({ theme }) => `
++    display: flex;
++    align-items: center;
++    gap: ${theme.sizeUnit}px;
++    margin-bottom: ${theme.sizeUnit}px;
++    font-weight: ${theme.fontWeightBold};
++  `}
++`;
++
++const StyledChip = styled.div`
++  ${({ theme }) => `
++    display: inline-flex;
++    align-items: center;
++    gap: ${theme.sizeUnit}px;
++    background: ${theme.colorPrimaryBg};
++    border: 1px solid ${theme.colorPrimaryBorder};
++    border-radius: ${theme.borderRadius}px;
++    padding: ${theme.sizeUnit - 2}px ${theme.sizeUnit}px;
++    margin: 0 ${theme.sizeUnit}px ${theme.sizeUnit}px 0;
++  `}
++`;
++
++type Props = {
++  datasets: DatasetOption[];
++  columns: FieldRef[];
++  groupBy: FieldRef[];
++  metrics: MetricRef[];
++  onAddColumn: (field: FieldRef) => void;
++  onRemoveColumn: (index: number) => void;
++  onUpdateColumnLabel: (index: number, label: string) => void;
++  onAddGroup: (field: FieldRef) => void;
++  onRemoveGroup: (index: number) => void;
++  onAddMetric: (metric: MetricRef) => void;
++  onRemoveMetric: (index: number) => void;
++  onUpdateMetric: (index: number, metric: MetricRef) => void;
++};
++
++function datasetLabel(datasets: DatasetOption[], id: number): string {
++  const ds = datasets.find(item => item.id === id);
++  return ds ? ds.table_name : `#${id}`;
++}
++
++function DropBand({
++  title,
++  icon,
++  children,
++  onDropField,
++}: {
++  title: string;
++  icon?: React.ReactNode;
++  children: React.ReactNode;
++  onDropField: (payload: DragPayload) => void;
++}) {
++  return (
++    <StyledBand
++      onDragOver={event => {
++        event.preventDefault();
++        event.dataTransfer.dropEffect = 'copy';
++      }}
++      onDrop={event => {
++        event.preventDefault();
++        const raw = event.dataTransfer.getData('application/x-report-field');
++        if (!raw) return;
++        try {
++          onDropField(JSON.parse(raw) as DragPayload);
++        } catch {
++          /* ignore malformed payload */
++        }
++      }}
++    >
++      <StyledBandTitle>
++        {icon}
++        {title}
++      </StyledBandTitle>
++      {children}
++    </StyledBand>
++  );
++}
++
++export default function FieldsPanel({
++  datasets,
++  columns,
++  groupBy,
++  metrics,
++  onAddColumn,
++  onRemoveColumn,
++  onUpdateColumnLabel,
++  onAddGroup,
++  onRemoveGroup,
++  onAddMetric,
++  onRemoveMetric,
++  onUpdateMetric,
++}: Props) {
++  return (
++    <Space direction="vertical" size="large" style={{ width: '100%' }}>
++      <DropBand
++        title={t('Detail fields')}
++        icon={<Icons.UnorderedListOutlined />}
++        onDropField={payload =>
++          onAddColumn({
++            dataset: payload.dataset,
++            column: payload.column,
++            label: payload.label,
++          })
++        }
++      >
++        {columns.length === 0 && (
++          <Typography.Text type="secondary">
++            {t('Drag columns here to include them in every row.')}
++          </Typography.Text>
++        )}
++        {columns.map((field, index) => (
++          <StyledChip key={`${field.dataset}-${field.column}-${index}`}>
++            <Tooltip title={datasetLabel(datasets, field.dataset)}>
++              <Tag>{datasetLabel(datasets, field.dataset)}</Tag>
++            </Tooltip>
++            <Input
++              size="small"
++              defaultValue={field.label}
++              style={{ width: 140 }}
++              onBlur={event => onUpdateColumnLabel(index, event.target.value)}
++            />
++            <Button
++              size="small"
++              type="text"
++              icon={<Icons.CloseOutlined />}
++              onClick={() => onRemoveColumn(index)}
++            />
++          </StyledChip>
++        ))}
++      </DropBand>
++
++      <DropBand
++        title={t('Group by (when metrics are used)')}
++        icon={<Icons.GroupOutlined />}
++        onDropField={payload =>
++          onAddGroup({
++            dataset: payload.dataset,
++            column: payload.column,
++            label: payload.label,
++          })
++        }
++      >
++        {groupBy.length === 0 && (
++          <Typography.Text type="secondary">
++            {t('Drag columns here to group the report. If empty, all detail '
++              + 'fields are used when metrics are present.')}
++          </Typography.Text>
++        )}
++        {groupBy.map((field, index) => (
++          <StyledChip key={`${field.dataset}-${field.column}-${index}`}>
++            <Tag>{datasetLabel(datasets, field.dataset)}</Tag>
++            <Typography.Text>{field.column}</Typography.Text>
++            <Button
++              size="small"
++              type="text"
++              icon={<Icons.CloseOutlined />}
++              onClick={() => onRemoveGroup(index)}
++            />
++          </StyledChip>
++        ))}
++      </DropBand>
++
++      <DropBand
++        title={t('Metrics (aggregations)')}
++        icon={<Icons.Sigma />}
++        onDropField={payload =>
++          onAddMetric({
++            dataset: payload.dataset,
++            column: payload.column,
++            aggregate: 'SUM',
++            label: `SUM(${payload.column})`,
++          })
++        }
++      >
++        {metrics.length === 0 && (
++          <Typography.Text type="secondary">
++            {t('Drag columns here to aggregate them.')}
++          </Typography.Text>
++        )}
++        {metrics.map((metric, index) => (
++          <StyledChip key={`${metric.dataset}-${metric.column}-${index}`}>
++            <Tag>{datasetLabel(datasets, metric.dataset)}</Tag>
++            <Select
++              size="small"
++              value={metric.aggregate}
++              options={AGGREGATES.map(agg => ({ label: agg, value: agg }))}
++              style={{ width: 120 }}
++              onChange={aggregate =>
++                onUpdateMetric(index, {
++                  ...metric,
++                  aggregate,
++                  label: `${aggregate}(${metric.column})`,
++                })
++              }
++            />
++            <Input
++              size="small"
++              defaultValue={metric.label}
++              style={{ width: 140 }}
++              onBlur={event =>
++                onUpdateMetric(index, { ...metric, label: event.target.value })
++              }
++            />
++            <Button
++              size="small"
++              type="text"
++              icon={<Icons.CloseOutlined />}
++              onClick={() => onRemoveMetric(index)}
++            />
++          </StyledChip>
++        ))}
++      </DropBand>
++    </Space>
++  );
++}
+diff --git a/superset-frontend/src/features/reportDesigner/components/FiltersPanel.tsx b/superset-frontend/src/features/reportDesigner/components/FiltersPanel.tsx
+new file mode 100644
+index 0000000..d0f421c
+--- /dev/null
++++ b/superset-frontend/src/features/reportDesigner/components/FiltersPanel.tsx
+@@ -0,0 +1,198 @@
++/**
++ * Licensed to the Apache Software Foundation (ASF) under one
++ * or more contributor license agreements.  See the NOTICE file
++ * distributed with this work for additional information
++ * regarding copyright ownership.  The ASF licenses this file
++ * to you under the Apache License, Version 2.0 (the
++ * "License"); you may not use this file except in compliance
++ * with the License.  You may obtain a copy of the License at
++ *
++ *   http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing,
++ * software distributed under the License is distributed on an
++ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++ * KIND, either express or implied.  See the License for the
++ * specific language governing permissions and limitations
++ * under the License.
++ */
++import { useMemo, useState } from 'react';
++import { t } from '@apache-superset/core/translation';
++import { styled } from '@apache-superset/core/theme';
++import {
++  Button,
++  Input,
++  Select,
++  Space,
++  Tag,
++  Typography,
++} from '@superset-ui/core/components';
++import { Icons } from '@superset-ui/core/components/Icons';
++import { DatasetOption, FILTER_OPS, FilterRef } from '../types';
++import { DragPayload } from './DatasetPanel';
++
++const StyledRow = styled.div`
++  ${({ theme }) => `
++    display: flex;
++    align-items: center;
++    gap: ${theme.sizeUnit}px;
++    padding: ${theme.sizeUnit}px 0;
++    border-bottom: 1px solid ${theme.colorBorderSecondary};
++  `}
++`;
++
++type Props = {
++  datasets: DatasetOption[];
++  filters: FilterRef[];
++  onChange: (filters: FilterRef[]) => void;
++};
++
++function datasetName(datasets: DatasetOption[], id: number): string {
++  const ds = datasets.find(item => item.id === id);
++  return ds ? ds.table_name : `#${id}`;
++}
++
++export default function FiltersPanel({ datasets, filters, onChange }: Props) {
++  const [dataset, setDataset] = useState<number | undefined>();
++  const [column, setColumn] = useState<string | undefined>();
++  const [op, setOp] = useState('=');
++  const [value, setValue] = useState('');
++
++  const datasetOptions = useMemo(
++    () => datasets.map(ds => ({ label: ds.table_name, value: ds.id })),
++    [datasets],
++  );
++
++  const columns = useMemo(
++    () =>
++      datasets
++        .find(ds => ds.id === dataset)
++        ?.columns.map(col => ({ label: col.column_name, value: col.column_name })) ?? [],
++    [datasets, dataset],
++  );
++
++  const needsValue = !['IS NULL', 'IS NOT NULL'].includes(op);
++  const isMulti = op === 'IN' || op === 'NOT IN';
++  const isBetween = op === 'BETWEEN';
++
++  const handleAdd = () => {
++    if (dataset === undefined || column === undefined) return;
++    if (needsValue && value.trim() === '') return;
++
++    let filterValue: string | string[];
++    if (isBetween) {
++      const parts = value.split(',').map(part => part.trim());
++      filterValue = parts.length === 2 ? parts : [value];
++    } else if (isMulti) {
++      filterValue = value
++        .split(',')
++        .map(part => part.trim())
++        .filter(Boolean);
++    } else {
++      filterValue = value;
++    }
++
++    const filter: FilterRef = {
++      dataset,
++      column,
++      op,
++      value: filterValue,
++    };
++    onChange([...filters, filter]);
++    setValue('');
++    setColumn(undefined);
++  };
++
++  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
++    event.preventDefault();
++    const raw = event.dataTransfer.getData('application/x-report-field');
++    if (!raw) return;
++    try {
++      const payload = JSON.parse(raw) as DragPayload;
++      setDataset(payload.dataset);
++      setColumn(payload.column);
++      setOp('=');
++    } catch {
++      /* ignore */
++    }
++  };
++
++  return (
++    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
++      {filters.length === 0 && (
++        <Typography.Text type="secondary">
++          {t('No filters. Drag a column here to filter the report.')}
++        </Typography.Text>
++      )}
++      {filters.map((filter, index) => (
++        <StyledRow key={`${index}-${filter.dataset}-${filter.column}`}>
++          <Tag>{datasetName(datasets, filter.dataset)}</Tag>
++          <Typography.Text code>{filter.column}</Typography.Text>
++          <Tag color="blue">{filter.op}</Tag>
++          <Typography.Text>
++            {Array.isArray(filter.value)
++              ? filter.value.join(', ')
++              : String(filter.value)}
++          </Typography.Text>
++          <Button
++            type="text"
++            danger
++            size="small"
++            icon={<Icons.DeleteOutlined />}
++            onClick={() => onChange(filters.filter((_, i) => i !== index))}
++          />
++        </StyledRow>
++      ))}
++
++      <StyledRow
++        onDragOver={event => event.preventDefault()}
++        onDrop={handleDrop}
++      >
++        <Select
++          placeholder={t('Table')}
++          options={datasetOptions}
++          value={dataset ?? null}
++          style={{ width: 150 }}
++          onChange={setDataset}
++        />
++        <Select
++          placeholder={t('Column')}
++          options={columns}
++          value={column ?? null}
++          style={{ width: 140 }}
++          showSearch
++          onChange={setColumn}
++        />
++        <Select
++          options={FILTER_OPS.map(opItem => ({ label: opItem, value: opItem }))}
++          value={op}
++          style={{ width: 110 }}
++          onChange={setOp}
++        />
++        {needsValue && (
++          <Input
++            placeholder={
++              isBetween
++                ? t('low, high')
++                : isMulti
++                  ? t('comma separated values')
++                  : t('value')
++            }
++            value={value}
++            style={{ width: 200 }}
++            onChange={event => setValue(event.target.value)}
++            onPressEnter={handleAdd}
++          />
++        )}
++        <Button
++          type="primary"
++          icon={<Icons.PlusOutlined />}
++          disabled={dataset === undefined || column === undefined}
++          onClick={handleAdd}
++        >
++          {t('Add filter')}
++        </Button>
++      </StyledRow>
++    </Space>
++  );
++}
+diff --git a/superset-frontend/src/features/reportDesigner/components/PreviewPanel.tsx b/superset-frontend/src/features/reportDesigner/components/PreviewPanel.tsx
+new file mode 100644
+index 0000000..092dd66
+--- /dev/null
++++ b/superset-frontend/src/features/reportDesigner/components/PreviewPanel.tsx
+@@ -0,0 +1,145 @@
++/**
++ * Licensed to the Apache Software Foundation (ASF) under one
++ * or more contributor license agreements.  See the NOTICE file
++ * distributed with this work for additional information
++ * regarding copyright ownership.  The ASF licenses this file
++ * to you under the Apache License, Version 2.0 (the
++ * "License"); you may not use this file except in compliance
++ * with the License.  You may obtain a copy of the License at
++ *
++ *   http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing,
++ * software distributed under the License is distributed on an
++ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++ * KIND, either express or implied.  See the License for the
++ * specific language governing permissions and limitations
++ * under the License.
++ */
++import { useMemo, useState } from 'react';
++import { t } from '@apache-superset/core/translation';
++import { styled } from '@apache-superset/core/theme';
++import { Alert } from '@apache-superset/core/components';
++import {
++  Button,
++  Space,
++  Table,
++  Tag,
++  Typography,
++} from '@superset-ui/core/components';
++import { Icons } from '@superset-ui/core/components/Icons';
++import { PreviewResult } from '../types';
++
++const StyledWrapper = styled.div`
++  ${({ theme }) => `
++    border-top: 1px solid ${theme.colorBorderSecondary};
++    padding-top: ${theme.sizeUnit * 2}px;
++    margin-top: ${theme.sizeUnit * 3}px;
++  `}
++`;
++
++const StyledSql = styled.pre`
++  ${({ theme }) => `
++    background: ${theme.colorFillAlter};
++    border: 1px solid ${theme.colorBorder};
++    border-radius: ${theme.borderRadius}px;
++    padding: ${theme.sizeUnit * 2}px;
++    overflow: auto;
++    max-height: 240px;
++    font-size: ${theme.fontSizeSM}px;
++  `}
++`;
++
++type Props = {
++  result: PreviewResult | null;
++  loading: boolean;
++  error: string | null;
++  onRefresh: () => void;
++};
++
++function stringify(value: unknown): string {
++  if (value === null || value === undefined) return '';
++  if (typeof value === 'object') return JSON.stringify(value);
++  return String(value);
++}
++
++export default function PreviewPanel({
++  result,
++  loading,
++  error,
++  onRefresh,
++}: Props) {
++  const [showSql, setShowSql] = useState(false);
++
++  const columns = useMemo(
++    () =>
++      result?.columns.map(col => ({
++        title: col,
++        dataIndex: col,
++        key: col,
++        ellipsis: true,
++        render: (value: unknown) => stringify(value),
++      })) ?? [],
++    [result],
++  );
++
++  const rows = useMemo(
++    () =>
++      (result?.rows ?? []).map((row, index) => ({
++        key: index,
++        ...row,
++      })),
++    [result],
++  );
++
++  return (
++    <StyledWrapper>
++      <Space style={{ marginBottom: 8 }} align="center">
++        <Typography.Title level={5} style={{ margin: 0 }}>
++          {t('Live preview')}
++        </Typography.Title>
++        <Button
++          icon={<Icons.PlayCircleOutlined />}
++          loading={loading}
++          onClick={onRefresh}
++        >
++          {t('Run preview')}
++        </Button>
++        {result && (
++          <>
++            <Tag color="green">{result.count} rows</Tag>
++            {result.truncated && <Tag color="orange">{t('truncated')}</Tag>}
++            <Button
++              type="link"
++              size="small"
++              onClick={() => setShowSql(!showSql)}
++            >
++              {showSql ? t('Hide SQL') : t('Show SQL')}
++            </Button>
++          </>
++        )}
++      </Space>
++
++      {error && (
++        <Alert
++          type="error"
++          showIcon
++          message={t('Preview failed')}
++          description={error}
++          style={{ marginBottom: 8 }}
++        />
++      )}
++
++      {result && showSql && <StyledSql>{result.sql}</StyledSql>}
++
++      <Table
++        dataSource={rows}
++        columns={columns}
++        loading={loading}
++        size="small"
++        scroll={{ x: 'max-content', y: 420 }}
++        pagination={{ pageSize: 50, showSizeChanger: true }}
++      />
++    </StyledWrapper>
++  );
++}
+diff --git a/superset-frontend/src/features/reportDesigner/components/RelationshipsPanel.tsx b/superset-frontend/src/features/reportDesigner/components/RelationshipsPanel.tsx
+new file mode 100644
+index 0000000..1bfff48
+--- /dev/null
++++ b/superset-frontend/src/features/reportDesigner/components/RelationshipsPanel.tsx
+@@ -0,0 +1,194 @@
++/**
++ * Licensed to the Apache Software Foundation (ASF) under one
++ * or more contributor license agreements.  See the NOTICE file
++ * distributed with this work for additional information
++ * regarding copyright ownership.  The ASF licenses this file
++ * to you under the Apache License, Version 2.0 (the
++ * "License"); you may not use this file except in compliance
++ * with the License.  You may obtain a copy of the License at
++ *
++ *   http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing,
++ * software distributed under the License is distributed on an
++ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++ * KIND, either express or implied.  See the License for the
++ * specific language governing permissions and limitations
++ * under the License.
++ */
++import { useMemo, useState } from 'react';
++import { t } from '@apache-superset/core/translation';
++import { styled } from '@apache-superset/core/theme';
++import {
++  Button,
++  Select,
++  Space,
++  Tag,
++  Typography,
++  Divider,
++} from '@superset-ui/core/components';
++import { Icons } from '@superset-ui/core/components/Icons';
++import { DatasetOption, JOIN_TYPES, Relationship } from '../types';
++
++const StyledRow = styled.div`
++  ${({ theme }) => `
++    display: flex;
++    align-items: center;
++    gap: ${theme.sizeUnit}px;
++    padding: ${theme.sizeUnit}px 0;
++    border-bottom: 1px solid ${theme.colorBorderSecondary};
++  `}
++`;
++
++type Props = {
++  datasets: DatasetOption[];
++  relationships: Relationship[];
++  onChange: (relationships: Relationship[]) => void;
++};
++
++function datasetName(datasets: DatasetOption[], id: number): string {
++  const ds = datasets.find(item => item.id === id);
++  return ds ? ds.table_name : `#${id}`;
++}
++
++export default function RelationshipsPanel({
++  datasets,
++  relationships,
++  onChange,
++}: Props) {
++  const [leftDataset, setLeftDataset] = useState<number | undefined>();
++  const [leftColumn, setLeftColumn] = useState<string | undefined>();
++  const [rightDataset, setRightDataset] = useState<number | undefined>();
++  const [rightColumn, setRightColumn] = useState<string | undefined>();
++  const [joinType, setJoinType] = useState<string>('INNER');
++
++  const datasetOptions = useMemo(
++    () => datasets.map(ds => ({ label: ds.table_name, value: ds.id })),
++    [datasets],
++  );
++
++  const leftColumns = useMemo(
++    () =>
++      datasets
++        .find(ds => ds.id === leftDataset)
++        ?.columns.map(col => ({ label: col.column_name, value: col.column_name })) ?? [],
++    [datasets, leftDataset],
++  );
++
++  const rightColumns = useMemo(
++    () =>
++      datasets
++        .find(ds => ds.id === rightDataset)
++        ?.columns.map(col => ({ label: col.column_name, value: col.column_name })) ?? [],
++    [datasets, rightDataset],
++  );
++
++  const canAdd =
++    leftDataset !== undefined &&
++    leftColumn !== undefined &&
++    rightDataset !== undefined &&
++    rightColumn !== undefined &&
++    !(leftDataset === rightDataset && leftColumn === rightColumn);
++
++  const handleAdd = () => {
++    if (
++      leftDataset === undefined ||
++      leftColumn === undefined ||
++      rightDataset === undefined ||
++      rightColumn === undefined
++    ) {
++      return;
++    }
++    const rel: Relationship = {
++      left_dataset: leftDataset,
++      left_column: leftColumn,
++      right_dataset: rightDataset,
++      right_column: rightColumn,
++      join_type: joinType as Relationship['join_type'],
++    };
++    onChange([...relationships, rel]);
++    setLeftColumn(undefined);
++    setRightColumn(undefined);
++  };
++
++  const handleRemove = (index: number) => {
++    onChange(relationships.filter((_, i) => i !== index));
++  };
++
++  return (
++    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
++      {relationships.length === 0 && (
++        <Typography.Text type="secondary">
++          {t('Define how the tables relate to each other (JOINs).')}
++        </Typography.Text>
++      )}
++      {relationships.map((rel, index) => (
++        <StyledRow key={`${index}-${rel.left_dataset}-${rel.left_column}`}>
++          <Tag color="green">{datasetName(datasets, rel.left_dataset)}</Tag>
++          <Typography.Text code>{rel.left_column}</Typography.Text>
++          <Icons.ArrowRightOutlined />
++          <Tag color="green">{datasetName(datasets, rel.right_dataset)}</Tag>
++          <Typography.Text code>{rel.right_column}</Typography.Text>
++          <Tag color="purple">{rel.join_type} JOIN</Tag>
++          <Button
++            type="text"
++            danger
++            size="small"
++            icon={<Icons.DeleteOutlined />}
++            onClick={() => handleRemove(index)}
++          />
++        </StyledRow>
++      ))}
++
++      <Divider style={{ margin: '4px 0' }} />
++
++      <Space wrap>
++        <Select
++          placeholder={t('Left table')}
++          options={datasetOptions}
++          value={leftDataset ?? null}
++          style={{ width: 160 }}
++          onChange={setLeftDataset}
++        />
++        <Select
++          placeholder={t('Left column')}
++          options={leftColumns}
++          value={leftColumn ?? null}
++          style={{ width: 140 }}
++          showSearch
++          onChange={setLeftColumn}
++        />
++        <Select
++          placeholder={t('Join')}
++          options={JOIN_TYPES.map(jt => ({ label: jt, value: jt }))}
++          value={joinType}
++          style={{ width: 100 }}
++          onChange={setJoinType}
++        />
++        <Select
++          placeholder={t('Right table')}
++          options={datasetOptions}
++          value={rightDataset ?? null}
++          style={{ width: 160 }}
++          onChange={setRightDataset}
++        />
++        <Select
++          placeholder={t('Right column')}
++          options={rightColumns}
++          value={rightColumn ?? null}
++          style={{ width: 140 }}
++          showSearch
++          onChange={setRightColumn}
++        />
++        <Button
++          type="primary"
++          icon={<Icons.PlusOutlined />}
++          disabled={!canAdd}
++          onClick={handleAdd}
++        >
++          {t('Add relationship')}
++        </Button>
++      </Space>
++    </Space>
++  );
++}
+diff --git a/superset-frontend/src/features/reportDesigner/types.ts b/superset-frontend/src/features/reportDesigner/types.ts
+new file mode 100644
+index 0000000..b5f1214
+--- /dev/null
++++ b/superset-frontend/src/features/reportDesigner/types.ts
+@@ -0,0 +1,148 @@
++/**
++ * Licensed to the Apache Software Foundation (ASF) under one
++ * or more contributor license agreements.  See the NOTICE file
++ * distributed with this work for additional information
++ * regarding copyright ownership.  The ASF licenses this file
++ * to you under the Apache License, Version 2.0 (the
++ * "License"); you may not use this file except in compliance
++ * with the License.  You may obtain a copy of the License at
++ *
++ *   http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing,
++ * software distributed under the License is distributed on an
++ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++ * KIND, either express or implied.  See the License for the
++ * specific language governing permissions and limitations
++ * under the License.
++ */
++
++export type DatasetColumn = {
++  column_name: string;
++  type?: string | null;
++  is_dttm: boolean;
++  expression?: string | null;
++};
++
++export type DatasetMetric = {
++  metric_name: string;
++  expression: string;
++};
++
++export type DatasetOption = {
++  id: number;
++  table_name: string;
++  schema?: string | null;
++  catalog?: string | null;
++  database_name: string;
++  columns: DatasetColumn[];
++  metrics: DatasetMetric[];
++};
++
++export type DatasetRef = {
++  id: number;
++  alias: string;
++};
++
++export type Relationship = {
++  left_dataset: number;
++  left_column: string;
++  right_dataset: number;
++  right_column: string;
++  join_type: 'INNER' | 'LEFT' | 'FULL';
++};
++
++export type FieldRef = {
++  dataset: number;
++  column: string;
++  label: string;
++};
++
++export type MetricRef = {
++  dataset: number;
++  column: string;
++  aggregate: 'SUM' | 'AVG' | 'COUNT' | 'COUNT_DISTINCT' | 'MIN' | 'MAX';
++  label: string;
++};
++
++export type FilterRef = {
++  dataset: number;
++  column: string;
++  op: string;
++  value: string | string[];
++};
++
++export type OrderRef = {
++  dataset: number;
++  column: string;
++  desc: boolean;
++  /** When ordering by an aggregated metric, reference the metric label. */
++  label?: string;
++};
++
++export type ReportDefinition = {
++  version: number;
++  datasets: DatasetRef[];
++  relationships: Relationship[];
++  columns: FieldRef[];
++  metrics: MetricRef[];
++  group_by: FieldRef[];
++  filters: FilterRef[];
++  order_by: OrderRef[];
++  limit: number;
++};
++
++export type Report = {
++  id: number;
++  name: string;
++  description: string;
++  definition: ReportDefinition;
++  changed_on?: string | null;
++  created_on?: string | null;
++};
++
++export type PreviewResult = {
++  sql: string;
++  columns: string[];
++  rows: Record<string, unknown>[];
++  count: number;
++  truncated: boolean;
++};
++
++export const EMPTY_DEFINITION: ReportDefinition = {
++  version: 1,
++  datasets: [],
++  relationships: [],
++  columns: [],
++  metrics: [],
++  group_by: [],
++  filters: [],
++  order_by: [],
++  limit: 1000,
++};
++
++export const FILTER_OPS = [
++  '=',
++  '!=',
++  '>',
++  '>=',
++  '<',
++  '<=',
++  'LIKE',
++  'IN',
++  'NOT IN',
++  'IS NULL',
++  'IS NOT NULL',
++  'BETWEEN',
++];
++
++export const AGGREGATES = [
++  'SUM',
++  'AVG',
++  'COUNT',
++  'COUNT_DISTINCT',
++  'MIN',
++  'MAX',
++];
++
++export const JOIN_TYPES = ['INNER', 'LEFT', 'FULL'];
+diff --git a/superset-frontend/src/views/routes.tsx b/superset-frontend/src/views/routes.tsx
+index 4f066e3..db3d27c 100644
+--- a/superset-frontend/src/views/routes.tsx
++++ b/superset-frontend/src/views/routes.tsx
+@@ -139,6 +139,20 @@ const RowLevelSecurityList = lazy(
+     ),
+ );
+ 
++const ReportDesignerList = lazy(
++  () =>
++    import(
++      /* webpackChunkName: "ReportDesignerList" */ 'src/features/reportDesigner/ReportListPage'
++    ),
++);
++
++const ReportDesigner = lazy(
++  () =>
++    import(
++      /* webpackChunkName: "ReportDesigner" */ 'src/features/reportDesigner/ReportDesignerPage'
++    ),
++);
++
+ const TaskList = lazy(
+   () => import(/* webpackChunkName: "TaskList" */ 'src/pages/TaskList'),
+ );
+@@ -313,6 +327,18 @@ export const routes: Routes = [
+     path: '/rowlevelsecurity/list',
+     Component: RowLevelSecurityList,
+   },
++  {
++    path: '/reportdesigner/list/',
++    Component: ReportDesignerList,
++  },
++  {
++    path: '/reportdesigner/designer/:reportId/',
++    Component: ReportDesigner,
++  },
++  {
++    path: '/reportdesigner/designer/',
++    Component: ReportDesigner,
++  },
+   {
+     path: '/tasks/list/',
+     Component: TaskList,
+diff --git a/superset/initialization/__init__.py b/superset/initialization/__init__.py
+index 878ed2f..ee94329 100644
+--- a/superset/initialization/__init__.py
++++ b/superset/initialization/__init__.py
+@@ -208,6 +208,7 @@ class SupersetAppInitializer:  # pylint: disable=too-many-public-methods
+         from superset.views.log.api import LogRestApi
+         from superset.views.logs import ActionLogView
+         from superset.views.redirect import RedirectView
++        from superset.views.report_designer.views import ReportDesignerView
+         from superset.views.roles import RolesListView
+         from superset.views.sql_lab.views import (
+             SavedQueryView,
+@@ -331,6 +332,15 @@ class SupersetAppInitializer:  # pylint: disable=too-many-public-methods
+             category_icon="",
+         )
+ 
++        appbuilder.add_link(
++            "Report Designer",
++            label=_("Report Designer"),
++            href=f"{app_root}/reportdesigner/list/",
++            icon="fa-file-text",
++            category="",
++            category_icon="",
++        )
++
+         appbuilder.add_view(
+             RolesListView,
+             "List Roles",
+@@ -438,6 +448,7 @@ class SupersetAppInitializer:  # pylint: disable=too-many-public-methods
+         appbuilder.add_view_no_menu(EmbeddedView)
+         appbuilder.add_view_no_menu(ExploreView)
+         appbuilder.add_view_no_menu(ExplorePermalinkView)
++        appbuilder.add_view_no_menu(ReportDesignerView)
+         appbuilder.add_view_no_menu(SavedQueryView)
+         appbuilder.add_view_no_menu(SqllabView)
+         appbuilder.add_view_no_menu(Superset)
+diff --git a/superset/migrations/versions/2026-08-26_14-00_c7d5e9f1a2b3_create_report_designer_table.py b/superset/migrations/versions/2026-08-26_14-00_c7d5e9f1a2b3_create_report_designer_table.py
+new file mode 100644
+index 0000000..7f16d03
+--- /dev/null
++++ b/superset/migrations/versions/2026-08-26_14-00_c7d5e9f1a2b3_create_report_designer_table.py
+@@ -0,0 +1,106 @@
++# Licensed to the Apache Software Foundation (ASF) under one
++# or more contributor license agreements.  See the NOTICE file
++# distributed with this work for additional information
++# regarding copyright ownership.  The ASF licenses this file
++# to you under the Apache License, Version 2.0 (the
++# "License"); you may not use this file except in compliance
++# with the License.  You may obtain a copy of the License at
++#
++#   http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing,
++# software distributed under the License is distributed on an
++# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++# KIND, either express or implied.  See the License for the
++# specific language governing permissions and limitations
++# under the License.
++"""Create report_designer table for the Report Designer feature
++
++Revision ID: c7d5e9f1a2b3
++Revises: 4b2a8c9d3e1f
++Create Date: 2026-08-26 14:00:00.000000
++
++"""
++
++from sqlalchemy import Column, DateTime, Integer, String, Text
++
++from superset.migrations.shared.utils import (
++    create_fks_for_table,
++    create_index,
++    create_table,
++    drop_fks_for_table,
++    drop_index,
++    drop_table,
++)
++
++# revision identifiers, used by Alembic.
++revision = "c7d5e9f1a2b3"
++down_revision = "4b2a8c9d3e1f"
++
++REPORT_DESIGNER_TABLE = "report_designer"
++
++
++def upgrade():
++    """
++    Create the report_designer table.
++
++    Stores Crystal-Reports-style report definitions (datasets, relationships,
++    fields, groupings, aggregations, filters) as a JSON document.
++    """
++    create_table(
++        REPORT_DESIGNER_TABLE,
++        Column("id", Integer, primary_key=True),
++        Column("name", String(256), nullable=False),
++        Column("description", Text, nullable=True),
++        Column("definition", Text, nullable=False, server_default="{}"),
++        # AuditMixinNullable columns
++        Column("created_on", DateTime, nullable=True),
++        Column("changed_on", DateTime, nullable=True),
++        Column("created_by_fk", Integer, nullable=True),
++        Column("changed_by_fk", Integer, nullable=True),
++    )
++
++    create_index(REPORT_DESIGNER_TABLE, "idx_report_designer_name", ["name"])
++    create_index(
++        REPORT_DESIGNER_TABLE,
++        "idx_report_designer_created_on",
++        ["created_on"],
++    )
++    create_index(
++        REPORT_DESIGNER_TABLE,
++        "idx_report_designer_changed_on",
++        ["changed_on"],
++    )
++    create_index(
++        REPORT_DESIGNER_TABLE,
++        "idx_report_designer_created_by",
++        ["created_by_fk"],
++    )
++
++    create_fks_for_table(
++        foreign_key_name="fk_report_designer_created_by_fk_ab_user",
++        table_name=REPORT_DESIGNER_TABLE,
++        referenced_table="ab_user",
++        local_cols=["created_by_fk"],
++        remote_cols=["id"],
++        ondelete="SET NULL",
++    )
++
++    create_fks_for_table(
++        foreign_key_name="fk_report_designer_changed_by_fk_ab_user",
++        table_name=REPORT_DESIGNER_TABLE,
++        referenced_table="ab_user",
++        local_cols=["changed_by_fk"],
++        remote_cols=["id"],
++        ondelete="SET NULL",
++    )
++
++
++def downgrade():
++    """Drop the report_designer table."""
++    drop_index(REPORT_DESIGNER_TABLE, "idx_report_designer_name")
++    drop_index(REPORT_DESIGNER_TABLE, "idx_report_designer_created_on")
++    drop_index(REPORT_DESIGNER_TABLE, "idx_report_designer_changed_on")
++    drop_index(REPORT_DESIGNER_TABLE, "idx_report_designer_created_by")
++    drop_fks_for_table(REPORT_DESIGNER_TABLE)
++    drop_table(REPORT_DESIGNER_TABLE)
+diff --git a/superset/models/__init__.py b/superset/models/__init__.py
+index 750c61c..2c7e725 100644
+--- a/superset/models/__init__.py
++++ b/superset/models/__init__.py
+@@ -14,4 +14,10 @@
+ # KIND, either express or implied.  See the License for the
+ # specific language governing permissions and limitations
+ # under the License.
+-from . import core, dynamic_plugins, sql_lab, user_attributes  # noqa: F401
++from . import (  # noqa: F401
++    core,
++    dynamic_plugins,
++    report_designer,
++    sql_lab,
++    user_attributes,
++)
+diff --git a/superset/models/report_designer.py b/superset/models/report_designer.py
+new file mode 100644
+index 0000000..955c743
+--- /dev/null
++++ b/superset/models/report_designer.py
+@@ -0,0 +1,90 @@
++# Licensed to the Apache Software Foundation (ASF) under one
++# or more contributor license agreements.  See the NOTICE file
++# distributed with this work for additional information
++# regarding copyright ownership.  The ASF licenses this file
++# to you under the Apache License, Version 2.0 (the
++# "License"); you may not use this file except in compliance
++# with the License.  You may obtain a copy of the License at
++#
++#   http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing,
++# software distributed under the License is distributed on an
++# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++# KIND, either express or implied.  See the License for the
++# specific language governing permissions and limitations
++# under the License.
++"""Report Designer model.
++
++Stores report definitions (a JSON document describing the datasets,
++relationships, fields, groupings, aggregations and filters of a
++Crystal-Reports-style multi-table report). The actual query execution is
++delegated to the underlying Superset datasets/databases.
++"""
++
++from __future__ import annotations
++
++from typing import Any
++
++from flask_appbuilder import Model
++from sqlalchemy import Column, Integer, String, Text
++
++from superset.models.helpers import AuditMixinNullable
++from superset.utils import json
++
++
++class ReportDesigner(AuditMixinNullable, Model):
++    """ORM object for saved report designer definitions."""
++
++    __tablename__ = "report_designer"
++
++    id = Column(Integer, primary_key=True)
++    name = Column(String(256), nullable=False)
++    description = Column(Text, nullable=True)
++    # Full report definition as a JSON document:
++    # {
++    #   "version": 1,
++    #   "datasets": [{"id": 1, "alias": "d1"}, ...],
++    #   "relationships": [{"left_dataset": 1, "left_column": "x",
++    #                      "right_dataset": 2, "right_column": "y",
++    #                      "join_type": "INNER"}, ...],
++    #   "columns": [{"dataset": 1, "column": "customer_name",
++    #                "label": "Customer Name"}, ...],
++    #   "metrics": [{"dataset": 2, "column": "amount",
++    #                "aggregate": "SUM", "label": "Total Amount"}, ...],
++    #   "group_by": [{"dataset": 1, "column": "customer_name"}, ...],
++    #   "filters": [{"dataset": 2, "column": "order_date", "op": ">=",
++    #                "value": "2026-01-01"}, ...],
++    #   "order_by": [{"dataset": 1, "column": "customer_name", "desc": false}],
++    #   "limit": 1000
++    # }
++    definition = Column(Text, nullable=False, default="{}")
++
++    export_fields = [
++        "id",
++        "name",
++        "description",
++        "definition",
++    ]
++
++    def get_definition(self) -> dict[str, Any]:
++        """Return the definition as a parsed dictionary."""
++        try:
++            return json.loads(self.definition or "{}")
++        except (TypeError, ValueError):
++            return {}
++
++    def set_definition(self, definition: dict[str, Any]) -> None:
++        """Persist the definition as a JSON string."""
++        self.definition = json.dumps(definition, default=str)
++
++    def to_dict(self) -> dict[str, Any]:
++        """Serialize for the API response."""
++        return {
++            "id": self.id,
++            "name": self.name,
++            "description": self.description or "",
++            "definition": self.get_definition(),
++            "changed_on": self.changed_on.isoformat() if self.changed_on else None,
++            "created_on": self.created_on.isoformat() if self.created_on else None,
++        }
+diff --git a/superset/views/report_designer/__init__.py b/superset/views/report_designer/__init__.py
+new file mode 100644
+index 0000000..13a8339
+--- /dev/null
++++ b/superset/views/report_designer/__init__.py
+@@ -0,0 +1,16 @@
++# Licensed to the Apache Software Foundation (ASF) under one
++# or more contributor license agreements.  See the NOTICE file
++# distributed with this work for additional information
++# regarding copyright ownership.  The ASF licenses this file
++# to you under the Apache License, Version 2.0 (the
++# "License"); you may not use this file except in compliance
++# with the License.  You may obtain a copy of the License at
++#
++#   http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing,
++# software distributed under the License is distributed on an
++# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++# KIND, either express or implied.  See the License for the
++# specific language governing permissions and limitations
++# under the License.
+diff --git a/superset/views/report_designer/excel_ingest.py b/superset/views/report_designer/excel_ingest.py
+new file mode 100644
+index 0000000..075e858
+--- /dev/null
++++ b/superset/views/report_designer/excel_ingest.py
+@@ -0,0 +1,138 @@
++# Licensed to the Apache Software Foundation (ASF) under one
++# or more contributor license agreements.  See the NOTICE file
++# distributed with this work for additional information
++# regarding copyright ownership.  The ASF licenses this file
++# to you under the Apache License, Version 2.0 (the
++# "License"); you may not use this file except in compliance
++# with the License.  You may obtain a copy of the License at
++#
++#   http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing,
++# software distributed under the License is distributed on an
++# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++# KIND, either express or implied.  See the License for the
++# specific language governing permissions and limitations
++# under the License.
++"""Excel/CSV ingestion for the Report Designer.
++
++Turns an uploaded spreadsheet into a staging table in a writable database and
++registers it as a Superset dataset so it can be used in reports. This is the
++"Data Modeler" ingestion path described in the Report Designer architecture.
++"""
++
++from __future__ import annotations
++
++import logging
++import re
++from datetime import datetime
++from typing import Any
++
++from flask_babel import gettext as _
++
++from superset import db
++from superset.connectors.sqla.models import SqlaTable
++from superset.models.core import Database
++
++logger = logging.getLogger(__name__)
++
++IMPORT_ERROR_MSG = _(
++    "Excel ingestion requires pandas + openpyxl (installed in the runtime image)"
++)
++
++
++class IngestError(Exception):
++    """Raised when an uploaded file cannot be turned into a dataset."""
++
++
++def _normalize_column_name(name: str, existing: set[str]) -> str:
++    """Turn an arbitrary header into a safe DB identifier."""
++    cleaned = re.sub(r"[^a-z0-9_]", "_", str(name).strip().lower())
++    if not cleaned or not cleaned[0].isalpha():
++        cleaned = f"col_{cleaned}" if cleaned else "col"
++    cleaned = cleaned[:60].rstrip("_")
++    while cleaned in existing:
++        cleaned = f"{cleaned}_"
++    existing.add(cleaned)
++    return cleaned
++
++
++def _read_dataframe(file_stream: Any, filename: str):
++    try:
++        import pandas as pd
++    except ImportError as ex:  # pragma: no cover
++        raise IngestError(str(IMPORT_ERROR_MSG)) from ex
++
++    name = (filename or "").lower()
++    try:
++        if name.endswith(".csv"):
++            return pd.read_csv(file_stream)
++        return pd.read_excel(file_stream)
++    except Exception as ex:
++        raise IngestError(_("Could not read the spreadsheet: %(err)s", err=ex)) from ex
++
++
++def ingest_excel(
++    database: Database,
++    file_stream: Any,
++    filename: str,
++    table_name: str | None = None,
++    schema: str | None = None,
++) -> dict[str, Any]:
++    """Read an uploaded spreadsheet, stage it as a table, register a dataset.
++
++    The target database must be writable (the report's read replica is not).
++    Returns metadata about the new dataset.
++    """
++    df = _read_dataframe(file_stream, filename)
++    if df is None or df.empty:
++        raise IngestError(_("The uploaded file has no rows"))
++
++    existing: set[str] = set()
++    columns = [_normalize_column_name(c, existing) for c in df.columns]
++    df.columns = columns
++
++    if table_name:
++        clean = re.sub(r"[^a-z0-9_]", "_", table_name.lower())
++        if not clean[0].isalpha():
++            clean = f"xp_{clean}"
++    else:
++        clean = f"xp_upload_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
++
++    try:
++        with database.get_sqla_engine(schema=schema) as engine:
++            df.to_sql(
++                clean,
++                con=engine,
++                if_exists="replace",
++                index=False,
++                method="multi",
++            )
++    except Exception as ex:
++        raise IngestError(
++            _("Could not write staging table (is the database writable?): %(err)s",
++              err=ex)
++        ) from ex
++
++    # Register as a Superset dataset (physical table).
++    dataset = SqlaTable(
++        database_id=database.id,
++        schema=schema,
++        table_name=clean,
++    )
++    db.session.add(dataset)
++    db.session.commit()
++
++    try:
++        dataset.fetch_metadata()
++    except Exception:  # pylint: disable=broad-except
++        # Metadata fetch is best-effort; columns can be refreshed later.
++        logger.warning("Metadata fetch failed for staged dataset %s", clean)
++    db.session.commit()
++
++    return {
++        "dataset_id": dataset.id,
++        "table_name": clean,
++        "rows": int(len(df)),
++        "columns": columns,
++    }
+diff --git a/superset/views/report_designer/pdf_export.py b/superset/views/report_designer/pdf_export.py
+new file mode 100644
+index 0000000..2eaa798
+--- /dev/null
++++ b/superset/views/report_designer/pdf_export.py
+@@ -0,0 +1,323 @@
++# Licensed to the Apache Software Foundation (ASF) under one
++# or more contributor license agreements.  See the NOTICE file
++# distributed with this work for additional information
++# regarding copyright ownership.  The ASF licenses this file
++# to you under the Apache License, Version 2.0 (the
++# "License"); you may not use this file except in compliance
++# with the License.  You may obtain a copy of the License at
++#
++#   http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing,
++# software distributed under the License is distributed on an
++# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++# KIND, either express or implied.  See the License for the
++# specific language governing permissions and limitations
++# under the License.
++"""Banded PDF rendering for the Report Designer.
++
++Crystal-Reports-style output: report header (title, filters, generated-on),
++group header bands, detail rows, group footer subtotals, grand-total footer,
++and a page footer with page numbers. Rendered with reportlab (pure Python).
++"""
++
++from __future__ import annotations
++
++from datetime import datetime
++from io import BytesIO
++from typing import Any
++
++from flask_babel import gettext as _
++
++# reportlab is installed in the runtime image (see Dockerfile); import lazily
++# so this module can be imported even when reportlab is unavailable.
++from reportlab.lib import colors
++from reportlab.lib.pagesizes import A4, landscape
++from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
++from reportlab.lib.units import mm
++from reportlab.platypus import (
++    Paragraph,
++    SimpleDocTemplate,
++    Spacer,
++    Table,
++    TableStyle,
++)
++
++ACCENT = colors.HexColor("#102B6B")
++ACCENT_LIGHT = colors.HexColor("#E8EDF7")
++GROUP_BG = colors.HexColor("#F2F5FB")
++FOOTER_BG = colors.HexColor("#DDE6F3")
++BORDER = colors.HexColor("#B9C4D9")
++TEXT_GRAY = colors.HexColor("#444444")
++
++
++def _styles() -> dict[str, ParagraphStyle]:
++    base = getSampleStyleSheet()
++    return {
++        "title": ParagraphStyle(
++            "RPTitle", parent=base["Title"], fontSize=18, textColor=ACCENT,
++            spaceAfter=2 * mm,
++        ),
++        "subtitle": ParagraphStyle(
++            "RPSubtitle", parent=base["Normal"], fontSize=9, textColor=TEXT_GRAY,
++            spaceAfter=1.5 * mm,
++        ),
++        "group": ParagraphStyle(
++            "RPGroup", parent=base["Normal"], fontSize=10, textColor=ACCENT,
++            fontName="Helvetica-Bold", spaceBefore=4 * mm, spaceAfter=1.5 * mm,
++        ),
++        "total": ParagraphStyle(
++            "RPTotal", parent=base["Normal"], fontSize=10, fontName="Helvetica-Bold",
++            textColor=ACCENT,
++        ),
++        "cell": ParagraphStyle(
++            "RPCell", parent=base["Normal"], fontSize=8.5, leading=11,
++        ),
++        "cellb": ParagraphStyle(
++            "RPCellB", parent=base["Normal"], fontSize=8.5, leading=11,
++            fontName="Helvetica-Bold",
++        ),
++        "filter": ParagraphStyle(
++            "RPFilter", parent=base["Normal"], fontSize=8.5, textColor=TEXT_GRAY,
++            leading=11,
++        ),
++    }
++
++
++def _cell(value: Any, bold: bool = False) -> Paragraph:
++    text = "" if value is None else str(value)
++    if len(text) > 120:
++        text = text[:117] + "..."
++    return Paragraph(text.replace("\n", " "), _styles()["cellb" if bold else "cell"])
++
++
++def _numeric(value: Any) -> float | None:
++    if isinstance(value, (int, float)) and not isinstance(value, bool):
++        return float(value)
++    return None
++
++
++def _fmt(value: float) -> str:
++    if value == int(value):
++        return f"{int(value):,}"
++    return f"{value:,.2f}"
++
++
++def _build_table(
++    columns: list[str],
++    body_rows: list[list[Paragraph]],
++    total_row: list[Paragraph] | None = None,
++) -> Table:
++    """A data table with a repeating bold header and optional footer band."""
++    header = [_cell(col, bold=True) for col in columns]
++    data = [header] + body_rows
++    style = TableStyle(
++        [
++            ("BACKGROUND", (0, 0), (-1, 0), ACCENT),
++            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
++            ("GRID", (0, 0), (-1, -1), 0.4, BORDER),
++            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
++            ("TOPPADDING", (0, 0), (-1, -1), 3),
++            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
++            ("LEFTPADDING", (0, 0), (-1, -1), 5),
++            ("RIGHTPADDING", (0, 0), (-1, -1), 5),
++        ]
++    )
++    if total_row is not None:
++        data.append(total_row)
++        style.add("BACKGROUND", (0, -1), (-1, -1), FOOTER_BG)
++    table = Table(data, repeatRows=1)
++    table.setStyle(style)
++    return table
++
++
++def _grouped_rows(
++    columns: list[str], rows: list[dict[str, Any]], group_idx: list[int]
++) -> list[list[Paragraph]]:
++    """Detail rows with group header + subtotal bands (Crystal style)."""
++    styles = _styles()
++    table_rows: list[list[Paragraph]] = []
++    current_key: tuple | None = None
++    count = 0
++
++    def _flush_group() -> None:
++        if not table_rows:
++            return
++        last = str(current_key[-1]) if current_key else ""
++        table_rows.append(
++            [Paragraph(f"<b>{_('Subtotal')}: {last}</b>", styles["total"])]
++            + [Paragraph("", styles["cell"])] * (len(columns) - 1)
++        )
++        table_rows.append([Paragraph("", styles["cell"]) for _ in columns])
++
++    for row in rows:
++        key = tuple(row.get(columns[i], "") for i in group_idx)
++        if key != current_key:
++            _flush_group()
++            current_key = key
++            first = str(key[0]) if key else ""
++            group_header = [Paragraph("", styles["cell"]) for _ in columns]
++            group_header[0] = Paragraph(
++                f"<b>{_('Group')}: {first}</b>", styles["group"]
++            )
++            table_rows.append(group_header)
++        table_rows.append([_cell(row.get(col, "")) for col in columns])
++        count += 1
++    _flush_group()
++    table_rows.append(
++        [Paragraph(f"<b>{_('Total rows')}: {count}</b>", styles["total"])]
++        + [Paragraph("", styles["cell"])] * (len(columns) - 1)
++    )
++    return table_rows
++
++
++def _aggregate_rows(
++    columns: list[str],
++    rows: list[dict[str, Any]],
++    metric_idx: list[int],
++) -> tuple[list[list[Paragraph]], list[Paragraph]]:
++    """Aggregated rows plus a grand-total footer band."""
++    styles = _styles()
++    body = [[_cell(row.get(col, "")) for col in columns] for row in rows]
++    grand: list[float] = [0.0] * len(columns)
++    for row in rows:
++        for idx in metric_idx:
++            value = _numeric(row.get(columns[idx]))
++            if value is not None:
++                grand[idx] += value
++    total: list[Paragraph] = [Paragraph(_("Grand Total"), styles["total"])]
++    for idx, _col in enumerate(columns):
++        if idx in metric_idx and grand[idx]:
++            total.append(Paragraph(_fmt(grand[idx]), styles["total"]))
++        else:
++            total.append(Paragraph("", styles["cell"]))
++    return body, total
++
++
++def _add_report_header(
++    story: list[Any],
++    report_name: str,
++    description: str,
++    definition: dict[str, Any],
++    generated_by: str | None,
++) -> None:
++    """Title, metadata and filter summary bands."""
++    styles = _styles()
++    story.append(Paragraph(report_name, styles["title"]))
++    if description:
++        story.append(Paragraph(description, styles["subtitle"]))
++    generated_on = datetime.now().strftime("%Y-%m-%d %H:%M")
++    meta = _("Generated: %(when)s", when=generated_on)
++    if generated_by:
++        meta += f"  |  {_('By')}: {generated_by}"
++    story.append(Paragraph(meta, styles["subtitle"]))
++    filters = definition.get("filters") or []
++    if filters:
++        parts = []
++        for filt in filters:
++            value = filt.get("value")
++            if isinstance(value, list):
++                value = ", ".join(str(item) for item in value)
++            parts.append(f"{filt.get('column')} {filt.get('op')} {value}")
++        story.append(
++            Paragraph(_("Filters") + ": " + " | ".join(parts), styles["filter"])
++        )
++    story.append(Spacer(1, 4 * mm))
++
++
++def _render(
++    report_name: str,
++    description: str,
++    definition: dict[str, Any],
++    result: dict[str, Any],
++    generated_by: str | None,
++) -> bytes:
++    """Render the report to PDF bytes."""
++    buffer = BytesIO()
++    columns = result["columns"]
++    page_size = landscape(A4) if len(columns) > 5 else A4
++    doc = SimpleDocTemplate(
++        buffer,
++        pagesize=page_size,
++        leftMargin=12 * mm,
++        rightMargin=12 * mm,
++        topMargin=14 * mm,
++        bottomMargin=16 * mm,
++        title=report_name,
++    )
++
++    def _page_footer(canvas, _document) -> None:
++        canvas.saveState()
++        canvas.setFont("Helvetica", 8)
++        canvas.setFillColor(TEXT_GRAY)
++        width, height = page_size
++        canvas.drawString(12 * mm, 8 * mm, report_name[:80])
++        canvas.drawRightString(
++            width - 12 * mm, 8 * mm, str(canvas.getPageNumber())
++        )
++        canvas.setStrokeColor(BORDER)
++        canvas.line(12 * mm, 11 * mm, width - 12 * mm, 11 * mm)
++        canvas.restoreState()
++
++    story: list[Any] = []
++    _add_report_header(story, report_name, description, definition, generated_by)
++
++    metrics = definition.get("metrics") or []
++    group_by = definition.get("group_by") or []
++    rows = result["rows"]
++    styles = _styles()
++    metric_idx = [
++        idx
++        for idx, col in enumerate(columns)
++        if any(
++            metric.get("label") == col
++            or f"{metric.get('aggregate')}({metric.get('column')})" == col
++            for metric in metrics
++        )
++    ]
++    group_idx = [
++        idx
++        for idx, col in enumerate(columns)
++        if any(
++            group.get("label") == col or group.get("column") == col
++            for group in group_by
++        )
++    ]
++
++    if not metrics and group_idx:
++        story.append(_build_table(columns, _grouped_rows(columns, rows, group_idx)))
++    elif metrics:
++        body, total = _aggregate_rows(columns, rows, metric_idx)
++        story.append(_build_table(columns, body, total_row=total))
++        story.append(
++            Paragraph(f"<b>{_('Groups')}: {len(rows)}</b>", styles["total"])
++        )
++    else:
++        body = [[_cell(row.get(col, "")) for col in columns] for row in rows]
++        story.append(_build_table(columns, body))
++        story.append(
++            Paragraph(f"<b>{_('Rows')}: {len(rows)}</b>", styles["total"])
++        )
++
++    if result.get("truncated"):
++        story.append(
++            Paragraph(
++                _("Report truncated — showing the first %(limit)s rows",
++                  limit=definition.get("limit", 1000)),
++                styles["filter"],
++            )
++        )
++
++    doc.build(story, onFirstPage=_page_footer, onLaterPages=_page_footer)
++    return buffer.getvalue()
++
++
++def build_report_pdf(
++    report_name: str,
++    description: str,
++    definition: dict[str, Any],
++    result: dict[str, Any],
++    generated_by: str | None = None,
++) -> bytes:
++    """Render a report definition + execution result to a PDF (bytes)."""
++    return _render(report_name, description, definition, result, generated_by)
+diff --git a/superset/views/report_designer/sql_builder.py b/superset/views/report_designer/sql_builder.py
+new file mode 100644
+index 0000000..cea79cb
+--- /dev/null
++++ b/superset/views/report_designer/sql_builder.py
+@@ -0,0 +1,394 @@
++# Licensed to the Apache Software Foundation (ASF) under one
++# or more contributor license agreements.  See the NOTICE file
++# distributed with this work for additional information
++# regarding copyright ownership.  The ASF licenses this file
++# to you under the Apache License, Version 2.0 (the
++# "License"); you may not use this file except in compliance
++# with the License.  You may obtain a copy of the License at
++#
++#   http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing,
++# software distributed under the License is distributed on an
++# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++# KIND, either express or implied.  See the License for the
++# specific language governing permissions and limitations
++# under the License.
++"""SQL generation for the Report Designer.
++
++Turns a report definition (datasets, relationships, fields, groupings,
++aggregations and filters) into a SQLAlchemy ``Select`` statement, compiles it
++against the underlying database and executes it through Superset's standard
++``Database.get_df`` path (engine-spec aware, logged, mutated).
++"""
++
++from __future__ import annotations
++
++import math
++from datetime import date, datetime
++from typing import Any
++
++import numpy as np
++import pandas as pd
++from flask_babel import gettext as _
++from sqlalchemy import false, func, literal_column, select, true
++from sqlalchemy.sql.selectable import Select
++
++from superset.connectors.sqla.models import SqlaTable
++from superset.daos.dataset import DatasetDAO
++from superset.models.core import Database
++
++# Supported aggregation functions, mapped to SQLAlchemy funcs.
++AGGREGATIONS: dict[str, Any] = {
++    "SUM": func.sum,
++    "AVG": func.avg,
++    "COUNT": func.count,
++    "COUNT_DISTINCT": lambda col: func.count(func.distinct(col)),
++    "MIN": func.min,
++    "MAX": func.max,
++}
++
++# Simple comparison filter operators.
++COMPARISONS: dict[str, Any] = {
++    "=": lambda col, value: col == value,
++    "!=": lambda col, value: col != value,
++    ">": lambda col, value: col > value,
++    ">=": lambda col, value: col >= value,
++    "<": lambda col, value: col < value,
++    "<=": lambda col, value: col <= value,
++}
++
++# Supported join types.
++JOIN_TYPES = {"INNER", "LEFT", "FULL"}
++
++
++class ReportDesignerError(Exception):
++    """Raised when a report definition cannot be turned into a query."""
++
++
++def normalize_definition(definition: dict[str, Any]) -> dict[str, Any]:
++    """Fill defaults and coerce types for a report definition."""
++    return {
++        "version": int(definition.get("version") or 1),
++        "datasets": definition.get("datasets") or [],
++        "relationships": definition.get("relationships") or [],
++        "columns": definition.get("columns") or [],
++        "metrics": definition.get("metrics") or [],
++        "group_by": definition.get("group_by") or [],
++        "filters": definition.get("filters") or [],
++        "order_by": definition.get("order_by") or [],
++        "limit": int(definition.get("limit") or 1000),
++    }
++
++
++def _load_datasets(
++    definition: dict[str, Any],
++) -> tuple[dict[int, SqlaTable], dict[int, str]]:
++    """Load datasets for a report, enforcing access control.
++
++    Returns a mapping of dataset id -> dataset and dataset id -> alias. Only
++    datasets the current user can access are returned; anything else raises.
++    """
++    datasets: dict[int, SqlaTable] = {}
++    aliases: dict[int, str] = {}
++    for index, entry in enumerate(definition["datasets"]):
++        ds_id = int(entry["id"])
++        dataset = DatasetDAO.find_by_id(ds_id)
++        if dataset is None:
++            raise ReportDesignerError(
++                _("Dataset %(id)s not found or not accessible", id=ds_id)
++            )
++        if dataset.is_virtual:
++            raise ReportDesignerError(
++                _(
++                    "Dataset %(id)s is a virtual (SQL) dataset, which is not "
++                    "supported by the Report Designer yet",
++                    id=ds_id,
++                )
++            )
++        datasets[ds_id] = dataset
++        aliases[ds_id] = entry.get("alias") or f"d{index + 1}"
++    if not datasets:
++        raise ReportDesignerError(_("Report needs at least one dataset"))
++    return datasets, aliases
++
++
++def _column_expr(
++    dataset: SqlaTable,
++    table_alias: Any,
++    column_name: str,
++) -> Any:
++    """Return a SQLAlchemy expression for a column.
++
++    Physical columns are referenced on the aliased table; columns defined as
++    SQL expressions fall back to the raw expression string.
++    """
++    column = dataset.get_column(column_name)
++    if column is not None and column.expression:
++        return literal_column(f"({column.expression})")
++    return table_alias.c[column_name]
++
++
++def _filter_expr(
++    dataset: SqlaTable,
++    table_alias: Any,
++    filt: dict[str, Any],
++) -> Any:
++    """Build a SQLAlchemy filter expression from a filter definition."""
++    op = str(filt.get("op") or "=").upper()
++    column = _column_expr(dataset, table_alias, filt["column"])
++    value = filt.get("value")
++
++    if op == "IS NULL":
++        return column.is_(None)
++    if op == "IS NOT NULL":
++        return column.is_not(None)
++    if op == "IN":
++        items = value if isinstance(value, list) else [value]
++        return column.in_(items) if items else false()
++    if op == "NOT IN":
++        items = value if isinstance(value, list) else [value]
++        return column.not_in(items) if items else true()
++    if op == "BETWEEN":
++        if not isinstance(value, (list, tuple)) or len(value) != 2:
++            raise ReportDesignerError(_("BETWEEN filter needs a [low, high] value"))
++        return column.between(value[0], value[1])
++    if op == "LIKE":
++        return column.like(f"%{value}%")
++    if op not in COMPARISONS:
++        raise ReportDesignerError(_("Unsupported filter operator: %(op)s", op=op))
++    return COMPARISONS[op](column, value)
++
++
++def _apply_group_by(
++    stmt: Select,
++    definition: dict[str, Any],
++    datasets: dict[int, SqlaTable],
++    tables: dict[int, Any],
++) -> Select:
++    """Apply GROUP BY — required whenever metrics are present."""
++    if not definition["metrics"]:
++        return stmt
++    group_by = definition["group_by"]
++    if not group_by:
++        group_by = [
++            {"dataset": c["dataset"], "column": c["column"]}
++            for c in definition["columns"]
++        ]
++    exprs = [
++        _column_expr(
++            datasets[int(entry["dataset"])],
++            tables[int(entry["dataset"])],
++            entry["column"],
++        )
++        for entry in group_by
++    ]
++    return stmt.group_by(*exprs)
++
++
++def _apply_filters(
++    stmt: Select,
++    definition: dict[str, Any],
++    datasets: dict[int, SqlaTable],
++    tables: dict[int, Any],
++) -> Select:
++    """Apply report filters to a statement."""
++    exprs = [
++        _filter_expr(
++            datasets[int(entry["dataset"])],
++            tables[int(entry["dataset"])],
++            entry,
++        )
++        for entry in definition["filters"]
++    ]
++    return stmt.where(*exprs) if exprs else stmt
++
++
++def _apply_order_by(
++    stmt: Select,
++    definition: dict[str, Any],
++    datasets: dict[int, SqlaTable],
++    tables: dict[int, Any],
++    label_map: dict[str, Any],
++) -> Select:
++    """Apply ordering to a statement."""
++    for entry in definition["order_by"]:
++        ds_id = int(entry["dataset"])
++        column_name = entry.get("column")
++        label = entry.get("label")
++        if label and label in label_map:
++            expr = label_map[label]
++        else:
++            expr = _column_expr(datasets[ds_id], tables[ds_id], column_name)
++        stmt = stmt.order_by(expr.desc() if entry.get("desc") else expr.asc())
++    return stmt
++
++
++def build_select(definition: dict[str, Any]) -> tuple[Select, SqlaTable]:
++    """Build a SQLAlchemy ``Select`` for a report definition.
++
++    Returns the compiled statement together with the primary dataset (used to
++    resolve the database that should execute the query).
++    """
++    definition = normalize_definition(definition)
++    datasets, aliases = _load_datasets(definition)
++    tables = {
++        ds_id: dataset.get_sqla_table_object().alias(aliases[ds_id])
++        for ds_id, dataset in datasets.items()
++    }
++
++    select_cols: list[Any] = []
++    label_map: dict[str, Any] = {}
++
++    # Plain (dimension) columns.
++    for entry in definition["columns"]:
++        ds_id = int(entry["dataset"])
++        expr = _column_expr(datasets[ds_id], tables[ds_id], entry["column"])
++        label = entry.get("label") or entry["column"]
++        select_cols.append(expr.label(label))
++        label_map[label] = expr
++
++    # Aggregated metrics.
++    for entry in definition["metrics"]:
++        ds_id = int(entry["dataset"])
++        aggregate = str(entry.get("aggregate") or "SUM").upper()
++        if aggregate not in AGGREGATIONS:
++            raise ReportDesignerError(
++                _("Unsupported aggregation: %(agg)s", agg=aggregate)
++            )
++        expr = AGGREGATIONS[aggregate](
++            _column_expr(datasets[ds_id], tables[ds_id], entry["column"])
++        )
++        label = entry.get("label") or f"{aggregate}({entry['column']})"
++        select_cols.append(expr.label(label))
++        label_map[label] = expr
++
++    if not select_cols:
++        raise ReportDesignerError(_("Report needs at least one field or metric"))
++
++    # FROM + JOINs, starting from the first dataset.
++    primary_id = int(definition["datasets"][0]["id"])
++    stmt = select(*select_cols).select_from(tables[primary_id])
++
++    for rel in definition["relationships"]:
++        left = tables[int(rel["left_dataset"])]
++        right = tables[int(rel["right_dataset"])]
++        onclause = left.c[rel["left_column"]] == right.c[rel["right_column"]]
++        join_type = str(rel.get("join_type") or "INNER").upper()
++        if join_type not in JOIN_TYPES:
++            raise ReportDesignerError(
++                _("Unsupported join type: %(jt)s", jt=join_type)
++            )
++        if join_type == "INNER":
++            stmt = stmt.join(right, onclause)
++        elif join_type == "LEFT":
++            stmt = stmt.join(right, onclause, isouter=True)
++        else:
++            stmt = stmt.join(right, onclause, full=True)
++
++    stmt = _apply_group_by(stmt, definition, datasets, tables)
++    stmt = _apply_filters(stmt, definition, datasets, tables)
++    stmt = _apply_order_by(stmt, definition, datasets, tables, label_map)
++    stmt = stmt.limit(definition["limit"])
++
++    return stmt, datasets[primary_id]
++
++
++def compile_sql(stmt: Select, database: Database) -> str:
++    """Compile a statement to a SQL string with safe literal binds."""
++    return database.compile_sqla_query(stmt)
++
++
++def execute_report(
++    definition: dict[str, Any],
++) -> dict[str, Any]:
++    """Execute a report definition and return rows/columns for preview.
++
++    Returns: {"sql", "columns", "rows", "count", "truncated"}
++    """
++    definition = normalize_definition(definition)
++    stmt, primary = build_select(definition)
++    database = primary.database
++
++    sql = compile_sql(stmt, database)
++    df = database.get_df(sql)
++
++    columns = [str(col) for col in df.columns]
++    rows = [_json_safe_row(row) for row in df.to_dict(orient="records")]
++
++    return {
++        "sql": sql,
++        "columns": columns,
++        "rows": rows,
++        "count": len(rows),
++        "truncated": len(rows) >= definition["limit"],
++    }
++
++
++def _json_safe_row(row: dict[str, Any]) -> dict[str, Any]:
++    """Convert numpy/pandas/timestamp values to JSON-safe Python values."""
++    return {key: _json_safe(value) for key, value in row.items()}
++
++
++def _json_safe(value: Any) -> Any:
++    if value is None:
++        return None
++    if isinstance(value, (np.integer,)):
++        return int(value)
++    if isinstance(value, (np.floating,)):
++        if math.isnan(value) or math.isinf(value):
++            return None
++        return float(value)
++    if isinstance(value, (np.bool_,)):
++        return bool(value)
++    if isinstance(value, (np.ndarray, list, tuple)):
++        return [_json_safe(item) for item in value]
++    if isinstance(value, (pd.Timestamp, datetime, date)):
++        return value.isoformat()
++    # pd.NA is a singleton (NAType), not a type — compare by identity.
++    if value is pd.NA or (
++        isinstance(value, float) and (math.isnan(value) or math.isinf(value))
++    ):
++        return None
++    return value
++
++
++def datasets_payload() -> list[dict[str, Any]]:
++    """List datasets accessible to the current user for the report picker."""
++    from superset.connectors.sqla.models import SqlMetric
++
++    payload: list[dict[str, Any]] = []
++    for dataset in DatasetDAO.find_all():
++        if dataset.is_virtual:
++            continue
++        columns = []
++        for column in dataset.columns:
++            columns.append(
++                {
++                    "column_name": column.column_name,
++                    "type": column.type,
++                    "is_dttm": column.is_dttm,
++                    "expression": column.expression,
++                }
++            )
++        metrics = []
++        for metric in dataset.metrics:
++            if isinstance(metric, SqlMetric):
++                metrics.append(
++                    {
++                        "metric_name": metric.metric_name,
++                        "expression": metric.expression,
++                    }
++                )
++        payload.append(
++            {
++                "id": dataset.id,
++                "table_name": dataset.table_name,
++                "schema": dataset.schema,
++                "catalog": dataset.catalog,
++                "database_name": dataset.database.database_name,
++                "columns": columns,
++                "metrics": metrics,
++            }
++        )
++    return payload
+diff --git a/superset/views/report_designer/views.py b/superset/views/report_designer/views.py
+new file mode 100644
+index 0000000..becec57
+--- /dev/null
++++ b/superset/views/report_designer/views.py
+@@ -0,0 +1,375 @@
++# Licensed to the Apache Software Foundation (ASF) under one
++# or more contributor license agreements.  See the NOTICE file
++# distributed with this work for additional information
++# regarding copyright ownership.  The ASF licenses this file
++# to you under the Apache License, Version 2.0 (the
++# "License"); you may not use this file except in compliance
++# with the License.  You may obtain a copy of the License at
++#
++#   http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing,
++# software distributed under the License is distributed on an
++# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++# KIND, either express or implied.  See the License for the
++# specific language governing permissions and limitations
++# under the License.
++"""Report Designer — pages and JSON API.
++
++Builds Crystal-Reports-style multi-table reports on top of existing Superset
++datasets. Reports are persisted as JSON definitions and executed through the
++underlying dataset databases.
++"""
++
++from __future__ import annotations
++
++import csv
++import logging
++import re
++from datetime import datetime
++from io import StringIO
++from typing import Any
++
++from flask import request, Response
++from flask_appbuilder import expose
++from flask_appbuilder.security.decorators import has_access, has_access_api
++from flask_babel import gettext as _
++
++from superset import db
++from superset.models.report_designer import ReportDesigner
++from superset.superset_typing import FlaskResponse
++from superset.utils import core as utils
++from superset.views.base import BaseSupersetView
++from superset.views.error_handling import json_error_response
++
++from .sql_builder import (
++    datasets_payload,
++    execute_report,
++    ReportDesignerError,
++)
++
++logger = logging.getLogger(__name__)
++
++SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9_.-]+")
++
++
++def _parse_definition() -> dict[str, Any]:
++    """Parse the JSON definition from the request body."""
++    payload = request.get_json(force=True, silent=True) or {}
++    definition = payload.get("definition") if isinstance(payload, dict) else payload
++    if not isinstance(definition, dict):
++        raise ReportDesignerError(_("Report definition must be a JSON object"))
++    return definition
++
++
++def _save_report(
++    report: ReportDesigner,
++    name: str,
++    description: str,
++    definition: dict[str, Any],
++    is_new: bool,
++) -> ReportDesigner:
++    """Persist a report definition with audit fields."""
++    report.name = (name or "Untitled report").strip()
++    report.description = description or ""
++    report.set_definition(definition)
++    now = datetime.now()
++    user_id = utils.get_user_id()
++    if is_new:
++        report.created_on = now
++        report.created_by_fk = user_id
++    report.changed_on = now
++    report.changed_by_fk = user_id
++    db.session.add(report)
++    db.session.commit()
++    return report
++
++
++class ReportDesignerView(BaseSupersetView):
++    route_base = "/reportdesigner"
++    class_permission_name = "ReportDesigner"
++
++    # --- Pages ---------------------------------------------------------
++
++    @expose("/list/")
++    @has_access
++    def list(self) -> FlaskResponse:
++        return super().render_app_template()
++
++    @expose("/designer/")
++    @has_access
++    def designer(self) -> FlaskResponse:
++        return super().render_app_template()
++
++    @expose("/designer/<int:report_id>/")
++    @has_access
++    def designer_detail(self, report_id: int) -> FlaskResponse:
++        return super().render_app_template()
++
++    # --- API -----------------------------------------------------------
++
++    @expose("/api/", methods=("GET",))
++    @has_access_api
++    def api_list(self) -> FlaskResponse:
++        reports = (
++            db.session.query(ReportDesigner)
++            .order_by(ReportDesigner.changed_on.desc())
++            .limit(200)
++            .all()
++        )
++        return self.json_response(
++            {
++                "count": len(reports),
++                "result": [report.to_dict() for report in reports],
++            }
++        )
++
++    @expose("/api/datasets/", methods=("GET",))
++    @has_access_api
++    def api_datasets(self) -> FlaskResponse:
++        return self.json_response({"result": datasets_payload()})
++
++    @expose("/api/", methods=("POST",))
++    @has_access_api
++    def api_post(self) -> FlaskResponse:
++        try:
++            payload = request.get_json(force=True, silent=True) or {}
++            definition = payload.get("definition") or {}
++            if not isinstance(definition, dict):
++                return json_error_response(
++                    _("Report definition must be a JSON object"), 400
++                )
++            report = _save_report(
++                ReportDesigner(),
++                payload.get("name", ""),
++                payload.get("description", ""),
++                definition,
++                is_new=True,
++            )
++            return self.json_response(report.to_dict(), 201)
++        except ReportDesignerError as ex:
++            return json_error_response(str(ex), 400)
++        except Exception as ex:  # pylint: disable=broad-except
++            db.session.rollback()
++            logger.exception("Failed to create report")
++            return json_error_response(utils.error_msg_from_exception(ex), 400)
++
++    @expose("/api/<int:report_id>/", methods=("GET",))
++    @has_access_api
++    def api_get(self, report_id: int) -> FlaskResponse:
++        report = db.session.get(ReportDesigner, report_id)
++        if report is None:
++            return Response(status=404)
++        return self.json_response(report.to_dict())
++
++    @expose("/api/<int:report_id>/", methods=("PUT",))
++    @has_access_api
++    def api_put(self, report_id: int) -> FlaskResponse:
++        try:
++            report = db.session.get(ReportDesigner, report_id)
++            if report is None:
++                return Response(status=404)
++            payload = request.get_json(force=True, silent=True) or {}
++            definition = payload.get("definition") or report.get_definition()
++            if not isinstance(definition, dict):
++                return json_error_response(
++                    _("Report definition must be a JSON object"), 400
++                )
++            _save_report(
++                report,
++                payload.get("name", report.name),
++                payload.get("description", report.description or ""),
++                definition,
++                is_new=False,
++            )
++            return self.json_response(report.to_dict())
++        except ReportDesignerError as ex:
++            return json_error_response(str(ex), 400)
++        except Exception as ex:  # pylint: disable=broad-except
++            db.session.rollback()
++            logger.exception("Failed to update report")
++            return json_error_response(utils.error_msg_from_exception(ex), 400)
++
++    @expose("/api/<int:report_id>/", methods=("DELETE",))
++    @has_access_api
++    def api_delete(self, report_id: int) -> FlaskResponse:
++        report = db.session.get(ReportDesigner, report_id)
++        if report is None:
++            return Response(status=404)
++        db.session.delete(report)
++        db.session.commit()
++        # Return 200 with a JSON body: SupersetClient's default parse method
++        # is JSON, and a 204 No Content (empty body) makes response.json()
++        # reject with "Unexpected end of JSON input".
++        return self.json_response({"message": _("Report deleted")})
++
++    @expose("/api/preview/", methods=("POST",))
++    @has_access_api
++    def api_preview(self) -> FlaskResponse:
++        try:
++            definition = _parse_definition()
++            result = execute_report(definition)
++            return self.json_response(result)
++        except ReportDesignerError as ex:
++            return json_error_response(str(ex), 400)
++        except Exception as ex:  # pylint: disable=broad-except
++            logger.exception("Failed to preview report")
++            return json_error_response(utils.error_msg_from_exception(ex), 400)
++
++    @expose("/api/<int:report_id>/export.csv/", methods=("GET",))
++    @has_access_api
++    def export_csv(self, report_id: int) -> FlaskResponse:
++        report = db.session.get(ReportDesigner, report_id)
++        if report is None:
++            return Response(status=404)
++        try:
++            result = execute_report(report.get_definition())
++            buffer = StringIO()
++            writer = csv.writer(buffer)
++            writer.writerow(result["columns"])
++            for row in result["rows"]:
++                writer.writerow([row.get(col, "") for col in result["columns"]])
++            safe_name = SAFE_NAME_RE.sub("_", report.name) or "report"
++            return Response(
++                buffer.getvalue(),
++                mimetype="text/csv",
++                headers={
++                    "Content-Disposition": (
++                        f'attachment; filename="{safe_name}.csv"'
++                    )
++                },
++            )
++        except ReportDesignerError as ex:
++            return json_error_response(str(ex), 400)
++        except Exception as ex:  # pylint: disable=broad-except
++            logger.exception("Failed to export report")
++            return json_error_response(utils.error_msg_from_exception(ex), 400)
++
++    @expose("/api/<int:report_id>/export.xlsx/", methods=("GET",))
++    @has_access_api
++    def export_xlsx(self, report_id: int) -> FlaskResponse:
++        report = db.session.get(ReportDesigner, report_id)
++        if report is None:
++            return Response(status=404)
++        try:
++            result = execute_report(report.get_definition())
++            buffer = _build_xlsx(result["columns"], result["rows"])
++            safe_name = SAFE_NAME_RE.sub("_", report.name) or "report"
++            return Response(
++                buffer,
++                mimetype=(
++                    "application/vnd.openxmlformats-officedocument."
++                    "spreadsheetml.sheet"
++                ),
++                headers={
++                    "Content-Disposition": (
++                        f'attachment; filename="{safe_name}.xlsx"'
++                    )
++                },
++            )
++        except ReportDesignerError as ex:
++            return json_error_response(str(ex), 400)
++        except Exception as ex:  # pylint: disable=broad-except
++            logger.exception("Failed to export report to Excel")
++            return json_error_response(utils.error_msg_from_exception(ex), 400)
++
++    @expose("/api/<int:report_id>/export.pdf/", methods=("GET",))
++    @has_access_api
++    def export_pdf(self, report_id: int) -> FlaskResponse:
++        report = db.session.get(ReportDesigner, report_id)
++        if report is None:
++            return Response(status=404)
++        try:
++            definition = report.get_definition()
++            result = execute_report(definition)
++            from superset.views.report_designer.pdf_export import build_report_pdf
++
++            data = build_report_pdf(
++                report.name,
++                report.description or "",
++                definition,
++                result,
++                generated_by=utils.get_user_id() and str(utils.get_user_id()),
++            )
++            safe_name = SAFE_NAME_RE.sub("_", report.name) or "report"
++            return Response(
++                data,
++                mimetype="application/pdf",
++                headers={
++                    "Content-Disposition": (
++                        f'attachment; filename="{safe_name}.pdf"'
++                    )
++                },
++            )
++        except ReportDesignerError as ex:
++            return json_error_response(str(ex), 400)
++        except Exception as ex:  # pylint: disable=broad-except
++            logger.exception("Failed to export report to PDF")
++            return json_error_response(utils.error_msg_from_exception(ex), 400)
++
++    @expose("/api/upload/", methods=("POST",))
++    @has_access_api
++    def api_upload(self) -> FlaskResponse:
++        """Ingest an Excel/CSV file into a writable database as a dataset."""
++        from superset.models.core import Database
++        from superset.views.report_designer.excel_ingest import (
++            ingest_excel,
++            IngestError,
++        )
++
++        try:
++            database_id = int(request.form.get("database_id") or 0)
++            table_name = request.form.get("table_name") or None
++            schema = request.form.get("schema") or None
++            file_storage = request.files.get("file")
++            if file_storage is None:
++                return json_error_response(_("No file provided"), 400)
++            database = db.session.get(Database, database_id) if database_id else None
++            if database is None:
++                return json_error_response(_("Database not found"), 400)
++            payload = ingest_excel(
++                database,
++                file_storage.stream,
++                file_storage.filename or "upload.xlsx",
++                table_name=table_name,
++                schema=schema,
++            )
++            return self.json_response(payload, 201)
++        except (IngestError, ValueError) as ex:
++            db.session.rollback()
++            return json_error_response(str(ex), 400)
++        except Exception as ex:  # pylint: disable=broad-except
++            db.session.rollback()
++            logger.exception("Failed to ingest spreadsheet")
++            return json_error_response(utils.error_msg_from_exception(ex), 400)
++
++
++def _build_xlsx(columns: list[str], rows: list[dict[str, Any]]) -> bytes:
++    """Build an .xlsx payload with openpyxl (header styled)."""
++    from io import BytesIO
++
++    from openpyxl import Workbook
++    from openpyxl.styles import Font, PatternFill
++    from openpyxl.utils import get_column_letter
++
++    workbook = Workbook()
++    sheet = workbook.active
++    sheet.title = "Report"
++    sheet.append(columns)
++    for col_idx, _name in enumerate(columns, start=1):
++        cell = sheet.cell(row=1, column=col_idx)
++        cell.font = Font(bold=True, color="FFFFFF")
++        cell.fill = PatternFill(
++            start_color="102B6B", end_color="102B6B", fill_type="solid"
++        )
++    for row in rows:
++        sheet.append([row.get(col, "") for col in columns])
++    for idx, col in enumerate(columns, start=1):
++        letter = get_column_letter(idx)
++        sheet.column_dimensions[letter].width = min(
++            40, max(10, len(str(col)) + 2)
++        )
++    sheet.freeze_panes = "A2"
++    buffer = BytesIO()
++    workbook.save(buffer)
++    return buffer.getvalue()

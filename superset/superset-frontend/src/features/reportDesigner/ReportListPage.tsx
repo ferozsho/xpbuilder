@@ -35,18 +35,33 @@ import { Report } from './types';
 
 const StyledWrapper = styled.div`
   width: 100%;
-  padding: ${({ theme }) => theme.sizeUnit * 4}px;
-`;
+  padding: ${({ theme }) => theme.gridUnit * 6}px;
+  max-width: 1400px;
+  margin: 0 auto;
 
-const StyledTitle = styled.h2`
-  margin: 0 0 ${({ theme }) => theme.sizeUnit * 3}px;
+  .ant-table-wrapper {
+    background: ${({ theme }) => theme.colors.grayscale.light5};
+    border-radius: ${({ theme }) => theme.borderRadius}px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  }
+
+  .ant-table-thead > tr > th {
+    font-weight: ${({ theme }) => theme.typography.weights.bold};
+    background: ${({ theme }) => theme.colors.grayscale.light4};
+  }
+
+  .ant-table-tbody > tr > td {
+    vertical-align: middle;
+  }
 `;
 
 const StyledActions = styled.div`
   display: inline-flex;
   align-items: center;
-  gap: ${({ theme }) => theme.sizeUnit}px;
+  justify-content: flex-end;
+  gap: ${({ theme }) => theme.gridUnit * 2}px;
   white-space: nowrap;
+  width: 100%;
 `;
 
 export default function ReportListPage() {
@@ -82,7 +97,7 @@ export default function ReportListPage() {
         title: t('Name'),
         dataIndex: 'name',
         key: 'name',
-        width: 280,
+        width: 250,
         ellipsis: true,
         render: (name: string, report: Report) => (
           <a
@@ -106,7 +121,7 @@ export default function ReportListPage() {
       {
         title: t('Datasets'),
         key: 'datasets',
-        width: 190,
+        width: 200,
         render: (_: unknown, report: Report) => (
           <Space wrap>
             {report.definition.datasets.map(ds => (
@@ -121,14 +136,15 @@ export default function ReportListPage() {
         title: t('Changed'),
         dataIndex: 'changed_on',
         key: 'changed_on',
-        width: 175,
+        width: 180,
         render: (value?: string | null) =>
           value ? new Date(value).toLocaleString() : '—',
       },
       {
         title: t('Actions'),
         key: 'actions',
-        width: 300,
+        width: 280,
+        align: 'right' as const,
         render: (_: unknown, report: Report) => (
           <StyledActions>
             <Button
@@ -189,16 +205,16 @@ export default function ReportListPage() {
         ]}
       />
       <StyledWrapper>
-        <StyledTitle>{t('Reports')}</StyledTitle>
         <Table<Report>
           rowKey="id"
           dataSource={reports}
           columns={columns}
           loading={loading}
-          scroll={{ x: 1150 }}
+          scroll={{ x: 'max-content' }}
           pagination={{ pageSize: 20 }}
         />
       </StyledWrapper>
     </>
   );
 }
+
