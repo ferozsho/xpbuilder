@@ -34,8 +34,7 @@ import {
 import { Report } from './types';
 
 const StyledWrapper = styled.div`
-  max-width: 1200px;
-  margin: 0 auto;
+  width: 100%;
   padding: ${({ theme }) => theme.sizeUnit * 4}px;
 `;
 
@@ -129,7 +128,7 @@ export default function ReportListPage() {
       {
         title: t('Actions'),
         key: 'actions',
-        width: 270,
+        width: 300,
         render: (_: unknown, report: Report) => (
           <StyledActions>
             <Button
@@ -196,7 +195,7 @@ export default function ReportListPage() {
           dataSource={reports}
           columns={columns}
           loading={loading}
-          scroll={{ x: 1050 }}
+          scroll={{ x: 1150 }}
           pagination={{ pageSize: 20 }}
         />
       </StyledWrapper>
