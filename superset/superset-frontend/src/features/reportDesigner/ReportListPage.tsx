@@ -24,7 +24,13 @@ import { Button, Table, Tag, Popconfirm, Space } from '@superset-ui/core/compone
 import { Icons } from '@superset-ui/core/components/Icons';
 import { useToasts } from 'src/components/MessageToasts/withToasts';
 import SubMenu from 'src/features/home/SubMenu';
-import { deleteReport, fetchReports, exportReportUrl } from './api';
+import {
+  deleteReport,
+  fetchReports,
+  exportPdfUrl,
+  exportReportUrl,
+  exportXlsxUrl,
+} from './api';
 import { Report } from './types';
 
 const StyledWrapper = styled.div`
@@ -133,6 +139,22 @@ export default function ReportListPage() {
               rel="noreferrer"
             >
               {t('CSV')}
+            </Button>
+            <Button
+              icon={<Icons.FileOutlined />}
+              href={exportXlsxUrl(report.id)}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {t('Excel')}
+            </Button>
+            <Button
+              icon={<Icons.ProfileOutlined />}
+              href={exportPdfUrl(report.id)}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {t('PDF')}
             </Button>
             <Popconfirm
               title={t('Delete this report?')}

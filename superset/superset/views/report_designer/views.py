@@ -244,3 +244,132 @@ class ReportDesignerView(BaseSupersetView):
         except Exception as ex:  # pylint: disable=broad-except
             logger.exception("Failed to export report")
             return json_error_response(utils.error_msg_from_exception(ex), 400)
+
+    @expose("/api/<int:report_id>/export.xlsx/", methods=("GET",))
+    @has_access_api
+    def export_xlsx(self, report_id: int) -> FlaskResponse:
+        report = db.session.get(ReportDesigner, report_id)
+        if report is None:
+            return Response(status=404)
+        try:
+            result = execute_report(report.get_definition())
+            buffer = _build_xlsx(result["columns"], result["rows"])
+            safe_name = SAFE_NAME_RE.sub("_", report.name) or "report"
+            return Response(
+                buffer,
+                mimetype=(
+                    "application/vnd.openxmlformats-officedocument."
+                    "spreadsheetml.sheet"
+                ),
+                headers={
+                    "Content-Disposition": (
+                        f'attachment; filename="{safe_name}.xlsx"'
+                    )
+                },
+            )
+        except ReportDesignerError as ex:
+            return json_error_response(str(ex), 400)
+        except Exception as ex:  # pylint: disable=broad-except
+            logger.exception("Failed to export report to Excel")
+            return json_error_response(utils.error_msg_from_exception(ex), 400)
+
+    @expose("/api/<int:report_id>/export.pdf/", methods=("GET",))
+    @has_access_api
+    def export_pdf(self, report_id: int) -> FlaskResponse:
+        report = db.session.get(ReportDesigner, report_id)
+        if report is None:
+            return Response(status=404)
+        try:
+            definition = report.get_definition()
+            result = execute_report(definition)
+            from superset.views.report_designer.pdf_export import build_report_pdf
+
+            data = build_report_pdf(
+                report.name,
+                report.description or "",
+                definition,
+                result,
+                generated_by=utils.get_user_id() and str(utils.get_user_id()),
+            )
+            safe_name = SAFE_NAME_RE.sub("_", report.name) or "report"
+            return Response(
+                data,
+                mimetype="application/pdf",
+                headers={
+                    "Content-Disposition": (
+                        f'attachment; filename="{safe_name}.pdf"'
+                    )
+                },
+            )
+        except ReportDesignerError as ex:
+            return json_error_response(str(ex), 400)
+        except Exception as ex:  # pylint: disable=broad-except
+            logger.exception("Failed to export report to PDF")
+            return json_error_response(utils.error_msg_from_exception(ex), 400)
+
+    @expose("/api/upload/", methods=("POST",))
+    @has_access_api
+    def api_upload(self) -> FlaskResponse:
+        """Ingest an Excel/CSV file into a writable database as a dataset."""
+        from superset.models.core import Database
+        from superset.views.report_designer.excel_ingest import (
+            ingest_excel,
+            IngestError,
+        )
+
+        try:
+            database_id = int(request.form.get("database_id") or 0)
+            table_name = request.form.get("table_name") or None
+            schema = request.form.get("schema") or None
+            file_storage = request.files.get("file")
+            if file_storage is None:
+                return json_error_response(_("No file provided"), 400)
+            database = db.session.get(Database, database_id) if database_id else None
+            if database is None:
+                return json_error_response(_("Database not found"), 400)
+            payload = ingest_excel(
+                database,
+                file_storage.stream,
+                file_storage.filename or "upload.xlsx",
+                table_name=table_name,
+                schema=schema,
+            )
+            return self.json_response(payload, 201)
+        except (IngestError, ValueError) as ex:
+            db.session.rollback()
+            return json_error_response(str(ex), 400)
+        except Exception as ex:  # pylint: disable=broad-except
+            db.session.rollback()
+            logger.exception("Failed to ingest spreadsheet")
+            return json_error_response(utils.error_msg_from_exception(ex), 400)
+
+
+def _build_xlsx(columns: list[str], rows: list[dict[str, Any]]) -> bytes:
+    """Build an .xlsx payload with openpyxl (header styled)."""
+    from io import BytesIO
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Report"
+    sheet.append(columns)
+    for col_idx, _name in enumerate(columns, start=1):
+        cell = sheet.cell(row=1, column=col_idx)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill(
+            start_color="102B6B", end_color="102B6B", fill_type="solid"
+        )
+    for row in rows:
+        sheet.append([row.get(col, "") for col in columns])
+    for idx, col in enumerate(columns, start=1):
+        letter = get_column_letter(idx)
+        sheet.column_dimensions[letter].width = min(
+            40, max(10, len(str(col)) + 2)
+        )
+    sheet.freeze_panes = "A2"
+    buffer = BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()

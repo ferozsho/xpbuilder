@@ -24,25 +24,32 @@ import {
   Button,
   Collapse,
   Input,
+  Modal,
   Select,
   Space,
   Loading,
   Tag,
   Typography,
+  Upload,
 } from '@superset-ui/core/components';
 import { Icons } from '@superset-ui/core/components/Icons';
 import { useToasts } from 'src/components/MessageToasts/withToasts';
 import SubMenu from 'src/features/home/SubMenu';
 import {
   createReport,
+  fetchDatabases,
   fetchDatasets,
   fetchReport,
   previewReport,
   updateReport,
+  exportPdfUrl,
   exportReportUrl,
+  exportXlsxUrl,
+  uploadExcel,
 } from './api';
 import {
   DatasetOption,
+  DatabaseOption,
   EMPTY_DEFINITION,
   FieldRef,
   MetricRef,
@@ -120,6 +127,13 @@ export default function ReportDesignerPage() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewResult, setPreviewResult] = useState<PreviewResult | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+
+  // ---- Data Modeler (Excel upload) -------------------------------------
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadDatabase, setUploadDatabase] = useState<number | undefined>();
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [databases, setDatabases] = useState<DatabaseOption[]>([]);
 
   // ---- load datasets -------------------------------------------------
   useEffect(() => {
@@ -273,6 +287,41 @@ export default function ReportDesignerPage() {
       .finally(() => setPreviewLoading(false));
   };
 
+  // ---- Data Modeler handlers ---------------------------------------------
+  const openUpload = () => {
+    fetchDatabases()
+      .then(list => setDatabases(list))
+      .catch(() => addDangerToast(t('Failed to load databases')));
+    setUploadDatabase(undefined);
+    setUploadFile(null);
+    setUploadOpen(true);
+  };
+
+  const handleUpload = () => {
+    if (uploadDatabase === undefined || !uploadFile) return;
+    setUploading(true);
+    uploadExcel(uploadDatabase, uploadFile)
+      .then(result => {
+        addSuccessToast(
+          `Uploaded ${result.rows} rows as ${result.table_name}`,
+        );
+        setUploadOpen(false);
+        // Refresh datasets so the new table is available in the picker.
+        fetchDatasets()
+          .then(list => {
+            setDatasets(list);
+            handleSelectDataset(result.dataset_id);
+          })
+          .catch(() => addDangerToast(t('Failed to refresh datasets')));
+      })
+      .catch(err => {
+        const message =
+          (err as { message?: string })?.message || t('Upload failed');
+        addDangerToast(message);
+      })
+      .finally(() => setUploading(false));
+  };
+
   if (loadingReport) {
     return (
       <div style={{ textAlign: 'center', padding: 80 }}>
@@ -346,15 +395,39 @@ export default function ReportDesignerPage() {
                 }
               />
               {reportId && (
-                <Button
-                  icon={<Icons.DownloadOutlined />}
-                  href={exportReportUrl(Number(reportId))}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {t('Export CSV')}
-                </Button>
+                <>
+                  <Button
+                    icon={<Icons.DownloadOutlined />}
+                    href={exportReportUrl(Number(reportId))}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {t('CSV')}
+                  </Button>
+                  <Button
+                    icon={<Icons.FileOutlined />}
+                    href={exportXlsxUrl(Number(reportId))}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {t('Excel')}
+                  </Button>
+                  <Button
+                    icon={<Icons.ProfileOutlined />}
+                    href={exportPdfUrl(Number(reportId))}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {t('PDF')}
+                  </Button>
+                </>
               )}
+              <Button
+                icon={<Icons.UploadOutlined />}
+                onClick={openUpload}
+              >
+                {t('Upload Excel')}
+              </Button>
             </Space>
           </StyledToolbar>
 
@@ -546,6 +619,49 @@ export default function ReportDesignerPage() {
           )}
         </StyledCanvas>
       </StyledLayout>
+
+      <Modal
+        open={uploadOpen}
+        title={t('Upload Excel / CSV as a dataset')}
+        onCancel={() => setUploadOpen(false)}
+        onOk={handleUpload}
+        okText={t('Upload')}
+        confirmLoading={uploading}
+        okButtonProps={{ disabled: uploadDatabase === undefined || !uploadFile }}
+      >
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <div>
+            <Typography.Text strong>{t('Target database')}</Typography.Text>
+            <Select
+              placeholder={t('Select a writable database…')}
+              options={databases.map(db => ({
+                label: db.database_name,
+                value: db.id,
+              }))}
+              value={uploadDatabase ?? null}
+              style={{ width: '100%', marginTop: 4 }}
+              onChange={setUploadDatabase}
+            />
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {t('Note: the read replica is read-only — pick a writable '
+                + 'connection so the staging table can be created.')}
+            </Typography.Text>
+          </div>
+          <Upload
+            beforeUpload={file => {
+              setUploadFile(file);
+              return false;
+            }}
+            onRemove={() => setUploadFile(null)}
+            maxCount={1}
+            accept=".xlsx,.xls,.csv"
+          >
+            <Button icon={<Icons.UploadOutlined />}>
+              {t('Choose file')}
+            </Button>
+          </Upload>
+        </Space>
+      </Modal>
     </>
   );
 }

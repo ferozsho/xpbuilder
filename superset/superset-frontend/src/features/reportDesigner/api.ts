@@ -83,3 +83,47 @@ export async function previewReport(
 export function exportReportUrl(id: number): string {
   return `${BASE}/${id}/export.csv/`;
 }
+
+export function exportXlsxUrl(id: number): string {
+  return `${BASE}/${id}/export.xlsx/`;
+}
+
+export function exportPdfUrl(id: number): string {
+  return `${BASE}/${id}/export.pdf/`;
+}
+
+export type UploadResult = {
+  dataset_id: number;
+  table_name: string;
+  rows: number;
+  columns: string[];
+};
+
+export type DatabaseOption = {
+  id: number;
+  database_name: string;
+};
+
+export async function fetchDatabases(): Promise<DatabaseOption[]> {
+  const { json } = await SupersetClient.get({
+    endpoint: '/api/v1/database/?q=(columns:!(id,database_name))',
+  });
+  return json.result ?? [];
+}
+
+/** Upload an Excel/CSV file and stage it as a dataset (Data Modeler). */
+export async function uploadExcel(
+  databaseId: number,
+  file: File,
+  tableName?: string,
+): Promise<UploadResult> {
+  const formData = new FormData();
+  formData.append('database_id', String(databaseId));
+  formData.append('file', file);
+  if (tableName) formData.append('table_name', tableName);
+  const { json } = await SupersetClient.post({
+    endpoint: `${BASE}/upload/`,
+    postPayload: formData,
+  });
+  return json;
+}

@@ -262,6 +262,11 @@ RUN uv pip install \
         --requirement /tmp/xpbuilder-requirements.lock \
     && rm -f /tmp/xpbuilder-requirements.lock
 
+# Report Designer: pure-Python PDF rendering (reportlab) used by the
+# /reportdesigner/*/export.pdf endpoint. Kept as its own layer so the large
+# requirements.lock install above stays cached.
+RUN uv pip install --python /app/.venv/bin/python --no-cache reportlab==4.2.5
+
 COPY --chown=superset:superset config/superset_config.py /app/xpbuilder/superset_config.py
 COPY --chown=superset:superset docker/initialize.sh /opt/xpbuilder/bin/initialize.sh
 COPY customizations/templates/tail_js_custom_extra.html /app/superset/templates/tail_js_custom_extra.html
