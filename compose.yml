@@ -7,6 +7,7 @@ x-xpbuilder-image: &x-xpbuilder-image
     target: xpbuilder
     args:
       XPBUILDER_VERSION: ${XPBUILDER_VERSION:-0.1.0}
+      DEV_MODE: ${DEV_MODE:-false}
 
 x-superset-environment: &x-superset-environment
   SUPERSET_CONFIG_PATH: /app/xpbuilder/superset_config.py
