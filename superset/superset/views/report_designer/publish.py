@@ -63,10 +63,20 @@ class PublishError(Exception):
 # kind "columns" renders raw columns (table); "aggregate" uses metrics+groupby;
 # "metric" renders a single metric (big number). requires_dttm vizes need a
 # date/time column in the report output.
+#
+# NOTE: the viz keys MUST match plugins registered by the fork's frontend
+# (superset-frontend/src/visualizations/presets/MainPreset.ts). This fork has
+# NO plain "echarts_bar" plugin — bars are "echarts_timeseries_bar" (a
+# timeseries bar, hence requires_dttm too).
 VIZ_CATALOG: dict[str, dict[str, Any]] = {
     "table": {"label": _("Table"), "kind": "columns", "viz": "table"},
     "pie": {"label": _("Pie"), "kind": "aggregate", "viz": "pie"},
-    "bar": {"label": _("Bar"), "kind": "aggregate", "viz": "echarts_bar"},
+    "bar": {
+        "label": _("Bar"),
+        "kind": "aggregate",
+        "viz": "echarts_timeseries_bar",
+        "requires_dttm": True,
+    },
     "line": {
         "label": _("Line"),
         "kind": "aggregate",
@@ -323,29 +333,45 @@ def _find_or_create_dataset(
 
 
 def _ensure_metrics(dataset: SqlaTable, definition: dict[str, Any]) -> None:
-    """Register report metrics on the dataset so chart params can use their names."""
+    """Register report metrics on the dataset so chart params can use their names.
+
+    The published virtual dataset already returns the aggregated output columns
+    (the inner report SQL computes them), so chart metrics MUST reference those
+    OUTPUT columns — not the source-table columns, which do not exist in the
+    virtual dataset (referencing ``userid`` etc. there raises "Unknown column").
+    Aggregating an already-aggregated column is a no-op per group, so we
+    register ``SUM(<output column>)`` (``AVG`` for AVG metrics) as the
+    expression.
+    """
     existing = {metric.metric_name for metric in dataset.metrics}
     wanted: dict[str, str] = {"count": "COUNT(*)"}
     for metric in definition.get("metrics") or []:
         label = str(metric.get("label") or "").strip()
-        column = metric.get("column")
         aggregate = str(metric.get("aggregate") or "SUM").upper()
-        if label and column:
-            wanted[label] = f"{aggregate}({column})"
+        if label:
+            quoted = f"`{label}`"
+            wanted[label] = f"AVG({quoted})" if aggregate == "AVG" else f"SUM({quoted})"
 
-    added = False
+    changed = False
     for name, expression in wanted.items():
-        if name in existing:
-            continue
-        dataset.metrics.append(
-            SqlMetric(
-                metric_name=name,
-                verbose_name=name,
-                expression=expression,
-            )
+        metric = next(
+            (m for m in dataset.metrics if m.metric_name == name), None
         )
-        added = True
-    if added:
+        if metric is None:
+            dataset.metrics.append(
+                SqlMetric(
+                    metric_name=name,
+                    verbose_name=name,
+                    expression=expression,
+                )
+            )
+            changed = True
+        elif metric.expression != expression:
+            # Re-publish may previously have stored a source-column expression;
+            # rewrite it to reference the output column instead.
+            metric.expression = expression
+            changed = True
+    if changed:
         db.session.commit()
 
 
@@ -436,7 +462,7 @@ def _build_params(
         else:
             params["metrics"] = metrics
             params["groupby"] = groupby
-            if viz_key in ("line", "area") and dttm_col:
+            if viz_key in ("bar", "line", "area") and dttm_col:
                 params["granularity_sqla"] = dttm_col
                 params["time_grain_sqla"] = "P1D"
 
