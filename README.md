@@ -57,6 +57,34 @@ bin/xpbuilder --env-file /path/to/site/.env up
 
 Only files whose basename is exactly `.env` are accepted.
 
+## File uploads (CSV / Excel / columnar)
+
+Superset only enables "Upload file to database" when at least one database
+connection has **Allow file uploads to database** set, so a stack whose only
+connection is the read-only Moodle replica shows the upload entries greyed out
+with *"Enable 'Allow file uploads to database' in any database's settings"*.
+
+`init` therefore provisions a dedicated upload target — an unprivileged
+`xpbuilder_uploads` role plus its own database inside the metadata PostgreSQL
+instance, registered as the **File uploads** connection — through
+`docker/ensure_uploads_db.py`. Uploaded files never land in (and cannot reach)
+Superset's metadata database. It is idempotent and safe to re-run.
+
+Existing stacks can be fixed without a rebuild:
+
+```bash
+docker exec -i <instance>_superset /app/.venv/bin/python - \
+  < docker/ensure_uploads_db.py
+```
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `XPBUILDER_ENABLE_FILE_UPLOADS` | `yes` | `no` skips provisioning entirely |
+| `XPBUILDER_UPLOAD_DB_NAME` | `File uploads` | Name of the registered connection |
+
+The upload role's password is derived from `SUPERSET_SECRET_KEY`; rotate the
+secret and re-run the script to change it.
+
 ## Commands
 
 | Command | Purpose |
