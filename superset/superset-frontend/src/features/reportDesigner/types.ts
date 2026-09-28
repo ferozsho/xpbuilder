@@ -113,6 +113,11 @@ export type DashboardOption = {
   dashboard_title: string;
 };
 
+export type DatabaseOption = {
+  id: number;
+  database_name: string;
+};
+
 export type VizTypeOption = {
   key: string;
   label: string;

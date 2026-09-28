@@ -282,6 +282,13 @@ export default function ReportDesignerPage() {
       .finally(() => setDatasetsLoaded(true));
   }, [addDangerToast]);
 
+  // ---- load database connections (dataset panel + Data Modeler) --------
+  useEffect(() => {
+    fetchDatabases()
+      .then(list => setDatabases(list))
+      .catch(() => addDangerToast(t('Failed to load databases')));
+  }, [addDangerToast]);
+
   // ---- load publish options (dashboards + viz types) --------------------
   useEffect(() => {
     fetchDashboards()
@@ -434,10 +441,10 @@ export default function ReportDesignerPage() {
       .finally(() => setSaving(false));
   };
 
-  // ---- sync Moodle tables -------------------------------------------------
-  const handleSyncTables = () => {
+  // ---- sync database tables ---------------------------------------------
+  const handleSyncTables = (databaseId?: number) => {
     setSyncingTables(true);
-    syncTables()
+    syncTables(databaseId)
       .then(result => {
         addSuccessToast(
           `${t('Synced')} ${result.created} ${t('new')}, ` +
@@ -585,6 +592,7 @@ export default function ReportDesignerPage() {
         <StyledLeft>
           <DatasetPanel
             datasets={datasets}
+            databases={databases}
             selectedDatasetIds={definition.datasets.map(ds => ds.id)}
             onSelectDataset={handleSelectDataset}
             onSyncTables={handleSyncTables}

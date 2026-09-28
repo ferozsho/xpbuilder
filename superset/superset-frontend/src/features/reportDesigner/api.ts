@@ -19,6 +19,7 @@
 import { SupersetClient } from '@superset-ui/core';
 import {
   DashboardOption,
+  DatabaseOption,
   DatasetOption,
   PreviewResult,
   PublishPayload,
@@ -145,11 +146,6 @@ export type UploadResult = {
   table_name: string;
   rows: number;
   columns: string[];
-};
-
-export type DatabaseOption = {
-  id: number;
-  database_name: string;
 };
 
 export async function fetchDatabases(): Promise<DatabaseOption[]> {
